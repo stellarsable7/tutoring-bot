@@ -1,0 +1,16 @@
+[
+  {
+    "source_url": "https://document.grail.moe/example-paper.pdf",
+    "solution_url": "https://document.grail.moe/example-solution.pdf",
+    "provider": "Holy Grail",
+    "school": "Example Secondary",
+    "year": 2024,
+    "paper": "1",
+    "question_number": "6",
+    "syllabus_version": "4049-2026",
+    "objective_codes": ["A1.complete-square"],
+    "marks": 5,
+    "solution_kind": "worked_solution",
+    "tutor_validated": true
+  }
+]
