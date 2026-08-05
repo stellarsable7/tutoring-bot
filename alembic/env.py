@@ -10,6 +10,7 @@ from amath_bot.catalogue import tables  # noqa: F401
 from amath_bot.db import Base
 from amath_bot.people import tables as people_tables  # noqa: F401
 from amath_bot.settings import Settings
+from amath_bot.submissions import tables as submission_tables  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
