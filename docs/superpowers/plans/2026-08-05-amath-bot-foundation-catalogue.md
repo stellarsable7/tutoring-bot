@@ -361,7 +361,127 @@ git add src/amath_bot/db.py src/amath_bot/catalogue alembic.ini alembic tests/ca
 git commit -m "feat: persist eligible source questions"
 ```
 
-### Task 5: Import and validate a tutor-reviewed catalogue manifest
+### Task 5: Discover Holy Grail Additional Mathematics paper pairs
+
+**Files:**
+- Create: `src/amath_bot/discovery/models.py`
+- Create: `src/amath_bot/discovery/holy_grail.py`
+- Create: `tests/discovery/fixtures/library-page.html`
+- Create: `tests/discovery/test_holy_grail.py`
+
+- [ ] **Step 1: Write failing discovery tests**
+
+```python
+from pathlib import Path
+from amath_bot.discovery.holy_grail import HolyGrailDiscovery
+
+
+def test_discovers_o_level_amath_question_and_solution_pair() -> None:
+    html = Path("tests/discovery/fixtures/library-page.html").read_text()
+    result = HolyGrailDiscovery.parse_library_page(html)
+    pair = result.pairs[0]
+    assert pair.question_document.subject_id == 30
+    assert pair.question_document.category_id == 1
+    assert pair.question_document.document_name.endswith("QP")
+    assert pair.solution_document.document_name.endswith("MS")
+
+
+def test_unpaired_documents_are_candidates_not_assignable() -> None:
+    html = Path("tests/discovery/fixtures/library-page.html").read_text()
+    result = HolyGrailDiscovery.parse_library_page(html)
+    assert result.unpaired[0].assignable is False
+```
+
+- [ ] **Step 2: Verify failure**
+
+Run: `uv run pytest tests/discovery/test_holy_grail.py -v`
+
+Expected: FAIL because discovery is missing.
+
+- [ ] **Step 3: Implement polite public-page discovery**
+
+```python
+# src/amath_bot/discovery/models.py
+from pydantic import BaseModel, ConfigDict, HttpUrl
+
+
+class DiscoveredDocument(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    external_id: int
+    category_id: int
+    subject_id: int
+    document_type_id: int
+    year: int | None
+    document_name: str
+    detail_url: HttpUrl
+    assignable: bool = False
+
+
+class DiscoveredPair(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    question_document: DiscoveredDocument
+    solution_document: DiscoveredDocument
+```
+
+Implement `HolyGrailDiscovery` with base URL `https://grail.moe`, O-Level category ID `1`, Additional Mathematics subject ID `30`, a descriptive user agent, a five-second minimum delay between requests, bounded retries, and conditional requests using ETag/Last-Modified. Fetch `/robots.txt` before a run and abort if `/library` becomes disallowed. Parse the Next.js server payload into typed documents; do not depend on CSS selectors. Pair only normalized names that differ solely by a terminal question/solution marker such as `QP`/`MS`, `Paper`/`Answers`, or `Questions`/`Solutions`. Ambiguous matches remain unpaired.
+
+- [ ] **Step 4: Run fixture tests without network access**
+
+Run: `uv run pytest tests/discovery/test_holy_grail.py -v`
+
+Expected: pair, ambiguity, pagination, robot-disallow, and malformed-payload tests pass.
+
+- [ ] **Step 5: Commit discovery adapter**
+
+```bash
+git add src/amath_bot/discovery tests/discovery
+git commit -m "feat: discover Holy Grail amath paper pairs"
+```
+
+### Task 6: Extract question candidates for tutor validation
+
+**Files:**
+- Modify: `pyproject.toml`
+- Create: `src/amath_bot/discovery/pdf_extract.py`
+- Create: `src/amath_bot/discovery/candidates.py`
+- Create: `tests/discovery/fixtures/amath-pair.json`
+- Create: `tests/discovery/test_candidates.py`
+
+- [ ] **Step 1: Write failing candidate-extraction test**
+
+```python
+async def test_extracts_matching_question_numbers_from_published_pair(extractor, discovered_pair) -> None:
+    candidates = await extractor.extract(discovered_pair)
+    assert [item.question_number for item in candidates] == ["1", "2"]
+    assert all(item.question_text for item in candidates)
+    assert all(item.published_solution_text for item in candidates)
+    assert all(item.tutor_validated is False for item in candidates)
+```
+
+- [ ] **Step 2: Verify failure**
+
+Run: `uv run pytest tests/discovery/test_candidates.py -v`
+
+Expected: FAIL because PDF extraction is missing.
+
+- [ ] **Step 3: Implement bounded PDF extraction**
+
+Add `pymupdf>=1.24,<2` to dependencies. Download only the public document URLs exposed by Holy Grail, cap files at 25 MiB and 100 pages, reject non-PDF content, extract text page by page, and split on anchored question numbers. Match question `n` only to published solution section `n`; never synthesize a missing section. Store page ranges, exact source URLs, checksums, extracted text, and `tutor_validated=False`. Candidate extraction may suggest 4049 objective tags, but no candidate becomes assignable until the tutor validates its question boundary, published solution boundary, marks, and syllabus tags.
+
+- [ ] **Step 4: Run extraction tests**
+
+Run: `uv sync && uv run pytest tests/discovery/test_candidates.py -v`
+
+Expected: paired fixtures pass; missing solution sections, oversized files, and malformed PDFs are rejected.
+
+- [ ] **Step 5: Commit candidate extraction**
+
+```bash
+git add pyproject.toml uv.lock src/amath_bot/discovery tests/discovery
+git commit -m "feat: extract tutor-reviewable source questions"
+```
+
+### Task 7: Import and validate a tutor-reviewed catalogue manifest
 
 **Files:**
 - Create: `src/amath_bot/catalogue/importer.py`
@@ -406,7 +526,7 @@ git add src/amath_bot/catalogue/importer.py src/amath_bot/cli.py data/catalogue 
 git commit -m "feat: import tutor-reviewed catalogue manifests"
 ```
 
-### Task 6: Foundation acceptance check
+### Task 8: Foundation acceptance check
 
 **Files:**
 - Create: `tests/acceptance/test_catalogue_ready.py`
@@ -423,6 +543,7 @@ def test_assignable_items_are_4049_and_have_published_worked_solutions(catalogue
         assert item.syllabus_version == "4049-2026"
         assert item.solution_url is not None
         assert item.solution_kind in {SolutionKind.WORKED_SOLUTION, SolutionKind.MARK_SCHEME}
+        assert item.tutor_validated is True
 ```
 
 - [ ] **Step 2: Run the complete suite**
@@ -433,7 +554,7 @@ Expected: all checks pass.
 
 - [ ] **Step 3: Document local setup and catalogue import**
 
-In `README.md`, document Python 3.12, uv, PostgreSQL, `AMATH_DATABASE_URL`, migrations, tests, and the dry-run/import commands. State explicitly that only tutor-reviewed metadata with a published worked solution or mark scheme becomes assignable.
+In `README.md`, document Python 3.12, uv, PostgreSQL, `AMATH_DATABASE_URL`, migrations, tests, the rate-limited Holy Grail discovery command, and the dry-run/import commands. State explicitly that only tutor-validated metadata with a published worked solution or mark scheme becomes assignable.
 
 - [ ] **Step 4: Re-run documentation commands**
 
