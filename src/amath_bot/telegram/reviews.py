@@ -1,0 +1,254 @@
+import base64
+import hashlib
+import hmac
+import time
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from amath_bot.assignments.tables import AssignmentRow
+from amath_bot.catalogue.tables import SourceQuestionRow
+from amath_bot.reviews.service import ReviewService, ReviewUnavailable
+from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
+from amath_bot.telegram.tutor import TutorMessage, TutorReply
+
+
+class InvalidReviewCallback(ValueError):
+    pass
+
+
+class ReviewNotifier(Protocol):
+    async def finalized(self, attempt_id: int) -> None: ...
+
+    async def resubmission_requested(self, attempt_id: int) -> None: ...
+
+
+@dataclass(frozen=True)
+class ReviewCard:
+    attempt_id: int
+    media_file_ids: tuple[str, ...]
+    transcription: tuple[str, ...]
+    scheme_url: str
+    proposed_total: int
+    maximum: int
+    decisions: tuple[dict[str, Any], ...]
+    confidence: dict[str, float]
+    review_reasons: tuple[str, ...]
+    callback_token: str
+
+
+class ReviewHandler:
+    def __init__(
+        self,
+        *,
+        tutor_telegram_id: int,
+        session: AsyncSession,
+        reviews: ReviewService,
+        callback_secret: str,
+        notifier: ReviewNotifier | None = None,
+        callback_ttl_seconds: int = 900,
+    ) -> None:
+        if not callback_secret:
+            raise ValueError("callback secret must not be empty")
+        self._tutor_telegram_id = tutor_telegram_id
+        self._session = session
+        self._reviews = reviews
+        self._secret = callback_secret.encode()
+        self._notifier = notifier
+        self._callback_ttl_seconds = callback_ttl_seconds
+
+    async def next(
+        self, message: TutorMessage | Message | CallbackQuery
+    ) -> ReviewCard | TutorReply:
+        if not self._is_tutor(message):
+            return TutorReply("Tutor access required.")
+        row = (
+            await self._session.execute(
+                select(AttemptRow, SourceQuestionRow.solution_url)
+                .join(AssignmentRow, AssignmentRow.id == AttemptRow.assignment_id)
+                .join(SourceQuestionRow, SourceQuestionRow.id == AssignmentRow.source_question_id)
+                .where(AttemptRow.status == "flagged")
+                .order_by(AttemptRow.created_at, AttemptRow.id)
+                .limit(1)
+            )
+        ).first()
+        if row is None:
+            return TutorReply("No submissions are awaiting review.")
+        attempt, scheme_url = row
+        media = tuple(
+            await self._session.scalars(
+                select(AttemptMediaRow.telegram_file_id)
+                .where(AttemptMediaRow.attempt_id == attempt.id)
+                .order_by(AttemptMediaRow.position)
+            )
+        )
+        decisions = tuple(attempt.grade_decisions or [])
+        transcription = tuple(
+            str(line)
+            for decision in decisions
+            for line in decision.get("student_lines", [])
+        )
+        confidence = self._confidence(decisions)
+        return ReviewCard(
+            attempt_id=attempt.id,
+            media_file_ids=media,
+            transcription=transcription,
+            scheme_url=scheme_url,
+            proposed_total=attempt.result_total or 0,
+            maximum=attempt.result_maximum or 0,
+            decisions=decisions,
+            confidence=confidence,
+            review_reasons=tuple(attempt.review_reasons or []),
+            callback_token=self._sign(attempt.id),
+        )
+
+    async def approve(
+        self, message: TutorMessage | Message | CallbackQuery, callback_token: str
+    ) -> TutorReply:
+        attempt_id = self._authorize(message, callback_token)
+        await self._reviews.approve(attempt_id, tutor_id=self._tutor_telegram_id)
+        if self._notifier is not None:
+            await self._notifier.finalized(attempt_id)
+        return TutorReply("Mark approved and student notified.")
+
+    async def override(
+        self,
+        message: TutorMessage | Message | CallbackQuery,
+        callback_token: str,
+        *,
+        total: int,
+        feedback: str,
+        reason: str,
+        forbidden_answers: frozenset[str] = frozenset(),
+    ) -> TutorReply:
+        attempt_id = self._authorize(message, callback_token)
+        await self._reviews.override(
+            attempt_id,
+            tutor_id=self._tutor_telegram_id,
+            total=total,
+            feedback=feedback,
+            reason=reason,
+            forbidden_answers=forbidden_answers,
+        )
+        if self._notifier is not None:
+            await self._notifier.finalized(attempt_id)
+        return TutorReply("Mark updated and student notified.")
+
+    async def request_resubmission(
+        self,
+        message: TutorMessage | Message | CallbackQuery,
+        callback_token: str,
+        *,
+        reason: str,
+    ) -> TutorReply:
+        attempt_id = self._authorize(message, callback_token)
+        await self._reviews.request_resubmission(
+            attempt_id, tutor_id=self._tutor_telegram_id, reason=reason
+        )
+        if self._notifier is not None:
+            await self._notifier.resubmission_requested(attempt_id)
+        return TutorReply("Clearer upload requested from student.")
+
+    def _authorize(self, message: TutorMessage | Message | CallbackQuery, token: str) -> int:
+        if not self._is_tutor(message):
+            raise InvalidReviewCallback("tutor access required")
+        try:
+            encoded, supplied_signature = token.split(".", 1)
+            expected = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:32]
+            if not hmac.compare_digest(supplied_signature, expected):
+                raise InvalidReviewCallback("invalid callback signature")
+            payload = base64.urlsafe_b64decode(encoded + "==").decode()
+            attempt_text, issued_text = payload.split(":", 1)
+            if int(time.time()) - int(issued_text) > self._callback_ttl_seconds:
+                raise InvalidReviewCallback("review callback expired")
+            return int(attempt_text)
+        except (ValueError, TypeError) as error:
+            if isinstance(error, InvalidReviewCallback):
+                raise
+            raise InvalidReviewCallback("invalid review callback") from error
+
+    def _sign(self, attempt_id: int) -> str:
+        payload = f"{attempt_id}:{int(time.time())}".encode()
+        encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+        signature = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:32]
+        return f"{encoded}.{signature}"
+
+    def _is_tutor(self, message: TutorMessage | Message | CallbackQuery) -> bool:
+        return message.from_user is not None and message.from_user.id == self._tutor_telegram_id
+
+    @staticmethod
+    def _confidence(decisions: tuple[dict[str, Any], ...]) -> dict[str, float]:
+        values = [
+            float(decision["provider_confidence"])
+            for decision in decisions
+            if "provider_confidence" in decision
+        ]
+        return {"provider": min(values, default=0.0)}
+
+
+def create_review_router(handler: ReviewHandler) -> Router:
+    router = Router(name="tutor-reviews")
+
+    @router.message(Command("review"))
+    async def next_review(message: Message) -> None:
+        if message.from_user is None:
+            return
+        result = await handler.next(message)
+        if isinstance(result, TutorReply):
+            await message.answer(result.text)
+            return
+        reasons = ", ".join(result.review_reasons) or "unspecified"
+        text = (
+            f"Attempt {result.attempt_id}: {result.proposed_total}/{result.maximum}\n"
+            f"Review reasons: {reasons}\nScheme: {result.scheme_url}\n"
+            f"Media expires after the 24-hour review window."
+        )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Approve", callback_data=f"review:approve:{result.callback_token}"
+                    ),
+                    InlineKeyboardButton(
+                        text="Request clearer upload",
+                        callback_data=f"review:resubmit:{result.callback_token}",
+                    ),
+                ]
+            ]
+        )
+        await message.answer(text, reply_markup=keyboard)
+
+    @router.callback_query(F.data.startswith("review:approve:"))
+    async def approve(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.data is None:
+            return
+        reply = await handler.approve(callback, callback.data.removeprefix("review:approve:"))
+        await callback.answer(reply.text, show_alert=True)
+
+    @router.callback_query(F.data.startswith("review:resubmit:"))
+    async def resubmit(callback: CallbackQuery) -> None:
+        if callback.from_user is None or callback.data is None:
+            return
+        reply = await handler.request_resubmission(
+            callback,
+            callback.data.removeprefix("review:resubmit:"),
+            reason="Tutor requested a clearer upload.",
+        )
+        await callback.answer(reply.text, show_alert=True)
+
+    return router
+
+
+__all__ = [
+    "InvalidReviewCallback",
+    "ReviewCard",
+    "ReviewHandler",
+    "ReviewNotifier",
+    "ReviewUnavailable",
+    "create_review_router",
+]
