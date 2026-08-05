@@ -11,6 +11,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 FROM python:3.12-slim
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
