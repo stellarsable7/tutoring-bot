@@ -1,12 +1,13 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from amath_bot.catalogue import tables  # noqa: F401
 from amath_bot.db import Base
+from amath_bot.people import tables as people_tables  # noqa: F401
 from amath_bot.settings import Settings
 
 config = context.config
