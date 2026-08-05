@@ -33,6 +33,12 @@ class PeopleService:
         await self._session.commit()
         return Invite(code=row.code, tutor_telegram_id=row.tutor_telegram_id)
 
+    async def find_student(self, telegram_id: int) -> Student | None:
+        row = await self._session.scalar(
+            select(StudentRow).where(StudentRow.telegram_id == telegram_id)
+        )
+        return None if row is None else Student.model_validate(row, from_attributes=True)
+
     async def redeem(
         self,
         code: str,
@@ -65,4 +71,3 @@ class PeopleService:
         await self._session.commit()
         await self._session.refresh(row)
         return Student.model_validate(row, from_attributes=True)
-
