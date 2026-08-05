@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from amath_bot.db import Base
@@ -14,6 +14,14 @@ class AttemptRow(Base):
     status: Mapped[str] = mapped_column(String(40), default="draft", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_maximum: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feedback: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    review_reasons: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    media_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    media_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AttemptMediaRow(Base):
@@ -30,4 +38,3 @@ class AttemptMediaRow(Base):
     telegram_file_id: Mapped[str] = mapped_column(String(500))
     mime_type: Mapped[str] = mapped_column(String(120))
     media_kind: Mapped[str] = mapped_column(String(20))
-
