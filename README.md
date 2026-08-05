@@ -2,13 +2,15 @@
 
 Telegram-based daily practice for the 2026 Singapore-Cambridge GCE O-Level Additional Mathematics syllabus 4049.
 
-This first implementation phase provides:
+This implementation provides:
 
 - a versioned 4049 syllabus map;
 - policy-enforced storage for source-linked questions;
 - rate-limited discovery of O-Level Additional Mathematics exam papers from Holy Grail's public library;
 - bounded extraction of matching question and published-solution sections; and
-- a tutor-reviewed catalogue import command.
+- a tutor-reviewed catalogue import command;
+- consent-gated Telegram onboarding and tutor-only controls; and
+- idempotent daily scheduling and retry-safe delivery.
 
 Discovered candidates are never assignable automatically. A tutor must validate the question boundary, matching published worked solution or mark scheme, marks, and syllabus tags. Final-answer-only material is rejected.
 
@@ -30,6 +32,8 @@ Set production configuration:
 ```bash
 export AMATH_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost/amath_bot'
 export AMATH_TIMEZONE='Asia/Singapore'
+export AMATH_TELEGRAM_BOT_TOKEN='123456:replace-with-botfather-token'
+export AMATH_TUTOR_TELEGRAM_ID='123456789'
 ```
 
 Apply migrations:
@@ -37,6 +41,31 @@ Apply migrations:
 ```bash
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
 ```
+
+## Telegram operation
+
+Only `AMATH_TUTOR_TELEGRAM_ID` can run tutor commands. Students join through a
+single-use `/start` invite and must consent before an account is created.
+
+- `/students` lists enrolled students.
+- `/schedule` configures weekdays, hour, and daily count.
+- `/assign` explicitly assigns an eligible catalogue question.
+- `/pause` pauses delivery.
+- `/progress` shows learning progress.
+
+The bot supports either polling or webhook deployment through the aiogram
+dispatcher. The delivery scheduler ticks once per minute in `Asia/Singapore` and
+uses database uniqueness constraints to prevent duplicate daily assignments.
+Source attribution and solution metadata are retained for the tutor and are not
+included in student-facing message text.
+
+To validate configuration without connecting to Telegram:
+
+```bash
+AMATH_TELEGRAM_DRY_RUN=true UV_CACHE_DIR=/tmp/amath-uv-cache uv run python -m amath_bot.app
+```
+
+The expected log line is `telegram dry-run enabled`.
 
 ## Validate and import a reviewed catalogue
 
@@ -64,4 +93,10 @@ PDF processing rejects files larger than 25 MiB, documents over 100 pages, malfo
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest -q
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run ruff check src tests
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run mypy src
+```
+
+Run only the daily-delivery acceptance workflow with:
+
+```bash
+UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest tests/acceptance/test_daily_delivery.py -q
 ```
