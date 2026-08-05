@@ -1,0 +1,31 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AMATH_DATABASE_URL: postgresql+asyncpg://amath:${POSTGRES_PASSWORD}@postgres/amath_bot
+      AMATH_TIMEZONE: Asia/Singapore
+      AMATH_TELEGRAM_BOT_TOKEN: ${AMATH_TELEGRAM_BOT_TOKEN}
+      AMATH_TUTOR_TELEGRAM_ID: ${AMATH_TUTOR_TELEGRAM_ID}
+      AMATH_REVIEW_CALLBACK_SECRET: ${AMATH_REVIEW_CALLBACK_SECRET}
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: amath_bot
+      POSTGRES_USER: amath
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amath -d amath_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - amath-postgres:/var/lib/postgresql/data
+
+volumes:
+  amath-postgres:

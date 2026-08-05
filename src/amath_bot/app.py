@@ -1,5 +1,7 @@
+import asyncio
 import logging
 
+from amath_bot.runtime import run_polling
 from amath_bot.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -16,11 +18,16 @@ def main() -> int:
     if settings.telegram_dry_run:
         logger.info("telegram dry-run enabled")
         return 0
-    if not settings.telegram_bot_token or settings.tutor_telegram_id is None:
+    if (
+        not settings.telegram_bot_token
+        or settings.tutor_telegram_id is None
+        or not settings.review_callback_secret
+    ):
         raise ValueError(
-            "AMATH_TELEGRAM_BOT_TOKEN and AMATH_TUTOR_TELEGRAM_ID are required"
+            "AMATH_TELEGRAM_BOT_TOKEN, AMATH_TUTOR_TELEGRAM_ID, and "
+            "AMATH_REVIEW_CALLBACK_SECRET are required"
         )
-    logger.info("telegram configuration validated")
+    asyncio.run(run_polling(settings))
     return 0
 
 

@@ -27,6 +27,33 @@ Discovered candidates are never assignable automatically. A tutor must validate 
 UV_CACHE_DIR=/tmp/amath-uv-cache uv sync
 ```
 
+## Deploy with Docker Compose
+
+Install Docker Desktop, then copy the example environment file and replace every placeholder:
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose logs -f bot
+```
+
+The bot container waits for PostgreSQL, applies every Alembic migration, and starts Telegram
+long polling. Only one bot replica should run during the pilot because it also owns the
+minute-based assignment scheduler. Stop it with `docker compose down`; the named PostgreSQL
+volume is retained. Use `docker compose down -v` only when you deliberately intend to erase the
+pilot database.
+
+Create the Telegram bot with BotFather, put its token in `.env`, and obtain your numeric Telegram
+ID from a trusted ID bot or Telegram API update. Set a random callback secret of at least 32
+characters. Never commit `.env`.
+
+The deployable runtime currently covers consent onboarding, tutor invites and controls, catalogue
+assignment, scheduled delivery, progress, and review of marking records. Automated handwriting
+marking additionally requires concrete vision/reasoning provider adapters and approved provider
+data controls; the repository currently defines those provider contracts but does not choose a
+vendor or send student work to one. Do not advertise automated marking until that adapter and the
+consented labelled evaluation set pass the launch gate.
+
 Set production configuration:
 
 ```bash

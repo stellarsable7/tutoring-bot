@@ -38,6 +38,9 @@ class TutorHandler:
     async def students(self, message: TutorMessage) -> TutorReply:
         return await self._run(message, "students")
 
+    async def invite(self, message: TutorMessage) -> TutorReply:
+        return await self._run(message, "invite")
+
     async def schedule(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "schedule", args)
 
@@ -62,10 +65,13 @@ def create_tutor_router(handler: TutorHandler) -> Router:
             text = message.text or ""
             args = tuple(text.split()[1:])
             method = getattr(handler, command_name)
-            reply = await method(message, args) if command_name != "students" else await method(message)
+            reply = (
+                await method(message, args)
+                if command_name not in {"students", "invite"}
+                else await method(message)
+            )
             await message.answer(reply.text)
 
-    for name in ("students", "schedule", "assign", "pause", "progress"):
+    for name in ("invite", "students", "schedule", "assign", "pause", "progress"):
         register(name)
     return router
-
