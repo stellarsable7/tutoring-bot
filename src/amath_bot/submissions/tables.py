@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,6 +18,7 @@ class AttemptRow(Base):
     result_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_maximum: Mapped[int | None] = mapped_column(Integer, nullable=True)
     feedback: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    grade_decisions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     review_reasons: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     media_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

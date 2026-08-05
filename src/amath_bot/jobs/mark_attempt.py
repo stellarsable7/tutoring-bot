@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt
 from sqlalchemy import select
@@ -21,6 +21,7 @@ class MarkingOutcome(BaseModel):
     maximum: PositiveInt
     feedback: tuple[str, ...]
     review_reasons: tuple[str, ...]
+    decisions: tuple[dict[str, Any], ...] = ()
 
 
 class AttemptPipeline(Protocol):
@@ -76,6 +77,7 @@ class MarkAttemptJob:
             attempt.result_total = outcome.total
             attempt.result_maximum = outcome.maximum
             attempt.feedback = list(outcome.feedback)
+            attempt.grade_decisions = list(outcome.decisions)
             attempt.review_reasons = list(outcome.review_reasons)
             if outcome.review_reasons:
                 attempt.status = "flagged"
@@ -122,4 +124,3 @@ class MarkAttemptJob:
                 continue
             attempt.notified_at = datetime.now(UTC)
             await self._session.commit()
-
