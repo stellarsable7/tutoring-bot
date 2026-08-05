@@ -34,6 +34,7 @@ export AMATH_DATABASE_URL='postgresql+asyncpg://postgres:postgres@localhost/amat
 export AMATH_TIMEZONE='Asia/Singapore'
 export AMATH_TELEGRAM_BOT_TOKEN='123456:replace-with-botfather-token'
 export AMATH_TUTOR_TELEGRAM_ID='123456789'
+export AMATH_REVIEW_CALLBACK_SECRET='replace-with-at-least-32-random-characters'
 ```
 
 Apply migrations:
@@ -100,3 +101,20 @@ Run only the daily-delivery acceptance workflow with:
 ```bash
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest tests/acceptance/test_daily_delivery.py -q
 ```
+
+Run the deterministic pilot-day exercise without contacting Telegram or an AI provider:
+
+```bash
+AMATH_TELEGRAM_DRY_RUN=true UV_CACHE_DIR=/tmp/amath-uv-cache \
+  uv run python -m amath_bot.cli simulate-day --date 2026-08-05
+```
+
+Before enrolling students, run the labelled evaluation and confirm it exits successfully:
+
+```bash
+UV_CACHE_DIR=/tmp/amath-uv-cache uv run python -m amath_bot.evaluation.runner \
+  tests/evaluation/fixtures/sample_set.json
+```
+
+See [the pilot operations runbook](docs/operations/pilot-runbook.md) for deployment,
+privacy, alerting, outage, review, and incident procedures.

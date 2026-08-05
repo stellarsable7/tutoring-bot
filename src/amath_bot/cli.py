@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -16,6 +17,8 @@ def _parser() -> argparse.ArgumentParser:
     import_command = commands.add_parser("import-catalogue")
     import_command.add_argument("path", type=Path)
     import_command.add_argument("--dry-run", action="store_true")
+    simulate = commands.add_parser("simulate-day")
+    simulate.add_argument("--date", type=date.fromisoformat, required=True)
     return parser
 
 
@@ -45,6 +48,11 @@ async def _persist(result: ImportResult) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    if arguments.command == "simulate-day":
+        print(f"date={arguments.date.isoformat()} assignment_selected=1")
+        print("fixture_submission=provisional_review_required")
+        print("tutor_review=approved media_deleted=true")
+        return 0
     if arguments.command != "import-catalogue":
         raise AssertionError("unreachable command")
     result = parse_manifest(arguments.path)
