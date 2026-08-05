@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,3 +72,11 @@ class CatalogueRepository:
     async def get(self, question_id: int) -> StoredQuestion | None:
         row = await self._session.get(SourceQuestionRow, question_id)
         return None if row is None else _stored(row)
+
+    async def assignable(self) -> tuple[StoredQuestion, ...]:
+        result = await self._session.scalars(
+            select(SourceQuestionRow)
+            .where(SourceQuestionRow.eligible.is_(True))
+            .order_by(SourceQuestionRow.id)
+        )
+        return tuple(_stored(row) for row in result)
