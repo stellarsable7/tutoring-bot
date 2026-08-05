@@ -1,0 +1,1 @@
+"""Question catalogue domain."""
