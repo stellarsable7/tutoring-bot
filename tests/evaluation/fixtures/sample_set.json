@@ -1,0 +1,28 @@
+[
+  {
+    "case_id": "clear-algebra-1",
+    "consent_provenance": "pilot-fixture-release-v1",
+    "category": "clear_algebra",
+    "expected_transcription": "x squared plus 2x equals 3",
+    "actual_transcription": "x squared plus 2x equals 3",
+    "tutor_total": 4,
+    "predicted_total": 4,
+    "expected_flags": [],
+    "predicted_flags": [],
+    "feedback": "Line 2: the factorisation method earned the method mark.",
+    "forbidden_answers": ["x = 1"]
+  },
+  {
+    "case_id": "ambiguous-notation-1",
+    "consent_provenance": "pilot-fixture-release-v1",
+    "category": "ambiguous_notation",
+    "expected_transcription": "unclear exponent",
+    "actual_transcription": "unclear exponent",
+    "tutor_total": 2,
+    "predicted_total": 2,
+    "expected_flags": ["material_ambiguity"],
+    "predicted_flags": ["material_ambiguity"],
+    "feedback": "The exponent needs a clearer upload before final marking.",
+    "forbidden_answers": ["x = 3"]
+  }
+]
