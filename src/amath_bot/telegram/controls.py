@@ -1,6 +1,8 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from amath_bot.assignments.service import AssignmentService
@@ -20,12 +22,15 @@ class DatabaseTutorControls:
         bot_username: str,
         people: PeopleService,
         assignments: AssignmentService,
+        timezone: str = "Asia/Singapore",
     ) -> None:
         self._session = session
         self._tutor_id = tutor_telegram_id
         self._bot_username = bot_username.lstrip("@")
         self._people = people
         self._assignments = assignments
+        self._timezone = timezone
+        ZoneInfo(timezone)
 
     async def execute(self, command: str, args: tuple[str, ...]) -> str:
         methods = {
@@ -34,6 +39,7 @@ class DatabaseTutorControls:
             "schedule": self._schedule,
             "assign": self._assign,
             "pause": self._pause,
+            "resume": self._resume,
             "progress": self._progress,
         }
         method = methods.get(command)
@@ -43,6 +49,9 @@ class DatabaseTutorControls:
             return await method(args)
         except (ValueError, TypeError) as error:
             return f"Could not run /{command}: {error}"
+        except SQLAlchemyError:
+            await self._session.rollback()
+            return f"Could not run /{command}: database operation failed; please try again."
 
     async def _invite(self, args: tuple[str, ...]) -> str:
         if args:
@@ -102,7 +111,8 @@ class DatabaseTutorControls:
                 await self._session.scalars(
                     select(AssignmentRow.id).where(
                         AssignmentRow.student_id == student.id,
-                        AssignmentRow.scheduled_date == datetime.now().astimezone().date(),
+                        AssignmentRow.scheduled_date
+                        == datetime.now(ZoneInfo(self._timezone)).date(),
                     )
                 )
             )
@@ -110,7 +120,7 @@ class DatabaseTutorControls:
         row = AssignmentRow(
             student_id=student.id,
             source_question_id=question.id,
-            scheduled_date=datetime.now().astimezone().date(),
+            scheduled_date=datetime.now(ZoneInfo(self._timezone)).date(),
             sequence_number=existing_count + 1,
             status="pending",
             selection_reason=f"tutor assigned objective {objective}",
@@ -126,6 +136,14 @@ class DatabaseTutorControls:
         student.paused = True
         await self._session.commit()
         return f"Delivery paused for {student.display_name}."
+
+    async def _resume(self, args: tuple[str, ...]) -> str:
+        if len(args) != 1:
+            raise ValueError("usage: /resume NAME")
+        student = await self._student(args[0])
+        student.paused = False
+        await self._session.commit()
+        return f"Delivery resumed for {student.display_name}."
 
     async def _progress(self, args: tuple[str, ...]) -> str:
         if len(args) != 1:

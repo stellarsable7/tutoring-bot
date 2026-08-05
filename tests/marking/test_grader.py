@@ -107,6 +107,17 @@ async def test_each_awarded_mark_has_scheme_and_line_evidence() -> None:
     assert result.confidence.recognition == 0.94
 
 
+async def test_provider_decision_order_does_not_change_dependency_validation() -> None:
+    payload = valid_payload()
+    payload["decisions"] = list(reversed(payload["decisions"]))
+
+    result = await Grader(FakeMarker(payload)).grade(
+        transcription(), scheme(), symbolic_checks={"M1": True, "A1": True}
+    )
+
+    assert [decision.scheme_step_code for decision in result.decisions] == ["M1", "A1"]
+
+
 @pytest.mark.parametrize("corruption", ["invented", "inflated", "missing_evidence"])
 async def test_adversarial_provider_grade_is_rejected(corruption: str) -> None:
     payload = valid_payload()

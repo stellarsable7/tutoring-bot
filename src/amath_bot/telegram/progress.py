@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.people.tables import StudentRow
+from amath_bot.reviews.tables import ReviewRow
 from amath_bot.submissions.tables import AttemptRow
 
 
@@ -64,6 +65,21 @@ class ProgressReporter:
             for attempt in attempts
             if attempt.status in {"marked", "reviewed"} and attempt.result_maximum
         ]
+        attempt_ids = [attempt.id for attempt in completed_attempts]
+        reviews = (
+            tuple(
+                await self._session.scalars(
+                    select(ReviewRow)
+                    .where(ReviewRow.attempt_id.in_(attempt_ids))
+                    .order_by(ReviewRow.created_at.desc(), ReviewRow.id.desc())
+                )
+            )
+            if attempt_ids
+            else ()
+        )
+        final_totals: dict[int, int | None] = {}
+        for review in reviews:
+            final_totals.setdefault(review.attempt_id, review.final_total)
         question_ids = [assignment.source_question_id for assignment in assignments]
         questions = {
             question.id: question
@@ -86,7 +102,8 @@ class ProgressReporter:
             question = assignment_questions.get(attempt.assignment_id)
             if question is None:
                 continue
-            ratio = (attempt.result_total or 0) / (attempt.result_maximum or 1)
+            total = final_totals.get(attempt.id, attempt.result_total)
+            ratio = (total or 0) / (attempt.result_maximum or 1)
             for objective in question.objective_codes:
                 totals.setdefault(objective, []).append(ratio)
         objectives = tuple(
@@ -104,7 +121,7 @@ class ProgressReporter:
             missed=missed,
             pending_reviews=pending,
             recent_marks=tuple(
-                f"{attempt.result_total}/{attempt.result_maximum}"
+                f"{final_totals.get(attempt.id, attempt.result_total)}/{attempt.result_maximum}"
                 for attempt in completed_attempts[:5]
             ),
             objective_scores=objectives,

@@ -80,8 +80,12 @@ class Grader:
             for line in page.lines
             if not line.crossed_out
         }
+        decisions_by_code = {
+            decision.scheme_step_code: decision for decision in proposed.decisions
+        }
+        canonical_decisions = tuple(decisions_by_code[step.code] for step in scheme.steps)
         awarded_codes: set[str] = set()
-        for decision in proposed.decisions:
+        for decision in canonical_decisions:
             step = steps[decision.scheme_step_code]
             if decision.marks_awarded > step.marks:
                 raise InvalidGrade(f"marks exceed published step {step.code}")
@@ -96,7 +100,7 @@ class Grader:
             elif decision.marks_awarded != 0:
                 raise InvalidGrade("unawarded steps must award zero marks")
 
-        calculated_total = sum(decision.marks_awarded for decision in proposed.decisions)
+        calculated_total = sum(decision.marks_awarded for decision in canonical_decisions)
         if proposed.total != calculated_total or calculated_total > scheme.total_marks:
             raise InvalidGrade("provider total is inconsistent with the published scheme")
 
@@ -113,7 +117,7 @@ class Grader:
             else 1.0
         )
         provider = min(
-            (decision.provider_confidence for decision in proposed.decisions), default=0.0
+            (decision.provider_confidence for decision in canonical_decisions), default=0.0
         )
         scheme_match = 1.0
         confidence = GradeConfidence(
@@ -125,6 +129,6 @@ class Grader:
         )
         return GradeResult(
             total=calculated_total,
-            decisions=proposed.decisions,
+            decisions=canonical_decisions,
             confidence=confidence,
         )

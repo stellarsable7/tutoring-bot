@@ -6,7 +6,12 @@ from aiogram import F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from amath_bot.people.service import PeopleService
+from amath_bot.people.service import (
+    InviteAlreadyUsed,
+    InviteNotFound,
+    PeopleService,
+    StudentAlreadyEnrolled,
+)
 from amath_bot.telegram.text import CONSENT_TEXT
 
 
@@ -76,7 +81,13 @@ def create_start_router(handler: StartHandler) -> Router:
         if callback.message is None:
             await callback.answer()
             return
-        reply = await handler.consent(callback.message, consented_at=datetime.now().astimezone())  # type: ignore[arg-type]
+        # CallbackQuery.from_user is the student; callback.message.from_user is the bot.
+        try:
+            reply = await handler.consent(callback, consented_at=datetime.now().astimezone())  # type: ignore[arg-type]
+        except (InviteNotFound, InviteAlreadyUsed, StudentAlreadyEnrolled, ValueError) as error:
+            await callback.message.answer(f"Enrollment could not be completed: {error}")
+            await callback.answer()
+            return
         await callback.message.answer(reply.text)
         await callback.answer()
 
@@ -85,9 +96,8 @@ def create_start_router(handler: StartHandler) -> Router:
         if callback.message is None:
             await callback.answer()
             return
-        reply = await handler.cancel(callback.message)  # type: ignore[arg-type]
+        reply = await handler.cancel(callback)  # type: ignore[arg-type]
         await callback.message.answer(reply.text)
         await callback.answer()
 
     return router
-

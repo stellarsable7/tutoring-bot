@@ -2,6 +2,7 @@ import secrets
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from amath_bot.people.models import Invite, Student
@@ -16,6 +17,10 @@ class InviteAlreadyUsed(ValueError):
     pass
 
 
+class StudentAlreadyEnrolled(ValueError):
+    pass
+
+
 class PeopleService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -24,13 +29,19 @@ class PeopleService:
         tutor = await self._session.get(TutorRow, tutor_telegram_id)
         if tutor is None:
             self._session.add(TutorRow(telegram_id=tutor_telegram_id))
+            # SQLAlchemy has no ORM relationship here, so make the FK ordering explicit.
+            await self._session.flush()
 
         row = InviteRow(
             code=secrets.token_urlsafe(12),
             tutor_telegram_id=tutor_telegram_id,
         )
         self._session.add(row)
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            raise
         return Invite(code=row.code, tutor_telegram_id=row.tutor_telegram_id)
 
     async def find_student(self, telegram_id: int) -> Student | None:
@@ -68,6 +79,10 @@ class PeopleService:
             consented_at=consented_at,
         )
         self._session.add(row)
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except IntegrityError as error:
+            await self._session.rollback()
+            raise StudentAlreadyEnrolled("this Telegram account is already enrolled") from error
         await self._session.refresh(row)
         return Student.model_validate(row, from_attributes=True)

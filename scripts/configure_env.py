@@ -11,7 +11,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--telegram-id", required=True, type=int)
     parser.add_argument("--output", type=Path, default=Path(".env"))
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+
+    if args.output.exists() and not args.force:
+        print(f"{args.output} already exists; use --force only to replace it deliberately.")
+        return 1
 
     token = getpass.getpass("Paste the NEW BotFather token (hidden): ").strip()
     if not token or ":" not in token:

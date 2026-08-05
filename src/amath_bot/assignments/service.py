@@ -57,17 +57,25 @@ class AssignmentService:
             local_now = now.astimezone(ZoneInfo(schedule.timezone))
             if local_now.weekday() not in schedule.weekdays or local_now.hour != schedule.hour:
                 continue
-            question = await self._session.scalar(
+            questions = tuple(
+                await self._session.scalars(
                 select(SourceQuestionRow)
                 .where(
                     SourceQuestionRow.eligible.is_(True),
                     SourceQuestionRow.syllabus_version == student.syllabus_version,
                 )
                 .order_by(SourceQuestionRow.id)
-                .limit(1)
+                )
             )
-            if question is None:
+            if not questions:
                 continue
+            prior_question_ids = set(
+                await self._session.scalars(
+                    select(AssignmentRow.source_question_id).where(
+                        AssignmentRow.student_id == student.id
+                    )
+                )
+            )
             for sequence in range(1, schedule.count + 1):
                 exists = await self._session.scalar(
                     select(AssignmentRow.id).where(
@@ -78,6 +86,10 @@ class AssignmentService:
                 )
                 if exists is not None:
                     continue
+                question = next(
+                    (item for item in questions if item.id not in prior_question_ids),
+                    questions[(sequence - 1) % len(questions)],
+                )
                 row = AssignmentRow(
                     student_id=student.id,
                     source_question_id=question.id,
@@ -88,7 +100,7 @@ class AssignmentService:
                 )
                 self._session.add(row)
                 await self._session.flush()
+                prior_question_ids.add(question.id)
                 created.append(Assignment.model_validate(row, from_attributes=True))
         await self._session.commit()
         return tuple(created)
-

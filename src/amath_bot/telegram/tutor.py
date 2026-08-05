@@ -1,3 +1,4 @@
+import shlex
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -41,6 +42,21 @@ class TutorHandler:
     async def invite(self, message: TutorMessage) -> TutorReply:
         return await self._run(message, "invite")
 
+    async def help(self, message: TutorMessage) -> TutorReply:
+        if message.from_user.id != self._tutor_telegram_id:
+            return TutorReply("Tutor access required.")
+        return TutorReply(
+            "Tutor commands:\n"
+            "/invite — create a student invite\n"
+            "/students — list students\n"
+            "/schedule NAME weekdays HOUR [COUNT] — set delivery\n"
+            "/assign NAME OBJECTIVE — queue a question\n"
+            "/pause NAME — pause delivery\n"
+            "/resume NAME — resume delivery\n"
+            "/progress NAME — show progress\n"
+            "/review — review flagged work"
+        )
+
     async def schedule(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "schedule", args)
 
@@ -49,6 +65,9 @@ class TutorHandler:
 
     async def pause(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "pause", args)
+
+    async def resume(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
+        return await self._run(message, "resume", args)
 
     async def progress(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "progress", args)
@@ -63,15 +82,28 @@ def create_tutor_router(handler: TutorHandler) -> Router:
             if message.from_user is None:
                 return
             text = message.text or ""
-            args = tuple(text.split()[1:])
+            try:
+                args = tuple(shlex.split(text)[1:])
+            except ValueError as error:
+                await message.answer(f"Invalid command: {error}")
+                return
             method = getattr(handler, command_name)
             reply = (
                 await method(message, args)
-                if command_name not in {"students", "invite"}
+                if command_name not in {"help", "students", "invite"}
                 else await method(message)
             )
             await message.answer(reply.text)
 
-    for name in ("invite", "students", "schedule", "assign", "pause", "progress"):
+    for name in (
+        "help",
+        "invite",
+        "students",
+        "schedule",
+        "assign",
+        "pause",
+        "resume",
+        "progress",
+    ):
         register(name)
     return router

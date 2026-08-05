@@ -75,11 +75,17 @@ UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
 Only `AMATH_TUTOR_TELEGRAM_ID` can run tutor commands. Students join through a
 single-use `/start` invite and must consent before an account is created.
 
+- `/help` lists the tutor commands and their argument formats.
+- `/invite` creates a single-use student enrolment link.
 - `/students` lists enrolled students.
-- `/schedule` configures weekdays, hour, and daily count.
-- `/assign` explicitly assigns an eligible catalogue question.
-- `/pause` pauses delivery.
-- `/progress` shows learning progress.
+- `/schedule NAME weekdays HOUR [COUNT]` configures delivery.
+- `/assign NAME OBJECTIVE` explicitly assigns an eligible catalogue question.
+- `/pause NAME` pauses delivery; `/resume NAME` resumes it.
+- `/progress NAME` shows learning progress.
+- `/review` opens the next flagged marking review.
+
+Until handwriting provider adapters are configured, photo and PDF messages receive an explicit
+unavailable response and are not stored.
 
 The bot supports either polling or webhook deployment through the aiogram
 dispatcher. The delivery scheduler ticks once per minute in `Asia/Singapore` and

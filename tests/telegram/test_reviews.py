@@ -14,6 +14,18 @@ from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 from amath_bot.telegram.reviews import InvalidReviewCallback, ReviewCard, ReviewHandler
 
 
+class FakeNotifier:
+    def __init__(self) -> None:
+        self.finalized_attempts: list[int] = []
+
+    async def finalized(self, attempt_id: int) -> bool:
+        self.finalized_attempts.append(attempt_id)
+        return True
+
+    async def resubmission_requested(self, attempt_id: int) -> bool:
+        return True
+
+
 @dataclass(frozen=True)
 class FakeUser:
     id: int
@@ -113,11 +125,32 @@ async def test_tutor_approves_flagged_attempt(session: AsyncSession) -> None:
     assert card.attempt_id == attempt.id
     assert card.media_file_ids == ("photo-1",)
     assert card.scheme_url.endswith("/scheme/7")
+    assert len(f"review:resubmit:{card.callback_token}".encode()) <= 64
+    result = await handler.approve(message, card.callback_token)
+
+    assert result.text == "Mark approved; student notification is pending."
+    await session.refresh(attempt)
+    assert attempt.status == "reviewed"
+
+
+async def test_successful_notifier_is_reported_truthfully(session: AsyncSession) -> None:
+    attempt = await add_flagged_attempt(session)
+    notifier = FakeNotifier()
+    handler = ReviewHandler(
+        tutor_telegram_id=100,
+        session=session,
+        reviews=ReviewService(session),
+        callback_secret="test-secret",
+        notifier=notifier,
+    )
+    message = FakeMessage(FakeUser(100))
+    card = await handler.next(message)
+    assert isinstance(card, ReviewCard)
+
     result = await handler.approve(message, card.callback_token)
 
     assert result.text == "Mark approved and student notified."
-    await session.refresh(attempt)
-    assert attempt.status == "reviewed"
+    assert notifier.finalized_attempts == [attempt.id]
 
 
 async def test_student_and_tampered_callbacks_are_rejected(session: AsyncSession) -> None:

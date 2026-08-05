@@ -120,6 +120,6 @@ async def test_student_submits_two_pages_and_receives_provisional_feedback(
     assert attempt.assignment_id == assignment.id
     assert queued.media_count == 2
     assert processed == 1
-    assert "Provisional: 4/5" in reply
+    assert "Mark finalized: 4/5" in reply
     assert "correct answer" not in reply.lower()
     assert media.deleted_attempts == [attempt.id]

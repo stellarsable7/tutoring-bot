@@ -2,10 +2,12 @@ from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from amath_bot.db import Base
 from amath_bot.people.service import InviteAlreadyUsed, PeopleService
+from amath_bot.people.tables import TutorRow
 
 
 @pytest_asyncio.fixture
@@ -22,6 +24,7 @@ async def session() -> AsyncSession:
 async def test_invite_is_single_use(session: AsyncSession) -> None:
     service = PeopleService(session)
     invite = await service.create_invite(tutor_telegram_id=100)
+    assert await session.scalar(select(TutorRow.telegram_id)) == 100
     student = await service.redeem(
         invite.code,
         telegram_id=200,

@@ -9,4 +9,8 @@ class Settings(BaseSettings):
     review_callback_secret: str | None = None
     telegram_dry_run: bool = False
 
-    model_config = SettingsConfigDict(env_prefix="AMATH_", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="AMATH_",
+        env_file=".env",
+        extra="ignore",
+    )

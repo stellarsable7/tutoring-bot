@@ -38,9 +38,11 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
     message = FakeMessage(FakeUser(100))
 
     await handler.students(message)
+    await handler.help(message)
     await handler.schedule(message, ("Ada", "weekdays", "17"))
     await handler.assign(message, ("Ada", "A1.complete-square"))
     await handler.pause(message, ("Ada",))
+    await handler.resume(message, ("Ada",))
     await handler.progress(message, ("Ada",))
 
     assert [name for name, _ in controls.calls] == [
@@ -48,5 +50,6 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
         "schedule",
         "assign",
         "pause",
+        "resume",
         "progress",
     ]

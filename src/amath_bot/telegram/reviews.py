@@ -23,9 +23,9 @@ class InvalidReviewCallback(ValueError):
 
 
 class ReviewNotifier(Protocol):
-    async def finalized(self, attempt_id: int) -> None: ...
+    async def finalized(self, attempt_id: int) -> bool: ...
 
-    async def resubmission_requested(self, attempt_id: int) -> None: ...
+    async def resubmission_requested(self, attempt_id: int) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -112,9 +112,12 @@ class ReviewHandler:
     ) -> TutorReply:
         attempt_id = self._authorize(message, callback_token)
         await self._reviews.approve(attempt_id, tutor_id=self._tutor_telegram_id)
-        if self._notifier is not None:
-            await self._notifier.finalized(attempt_id)
-        return TutorReply("Mark approved and student notified.")
+        notified = self._notifier is not None and await self._notifier.finalized(attempt_id)
+        return TutorReply(
+            "Mark approved and student notified."
+            if notified
+            else "Mark approved; student notification is pending."
+        )
 
     async def override(
         self,
@@ -135,9 +138,12 @@ class ReviewHandler:
             reason=reason,
             forbidden_answers=forbidden_answers,
         )
-        if self._notifier is not None:
-            await self._notifier.finalized(attempt_id)
-        return TutorReply("Mark updated and student notified.")
+        notified = self._notifier is not None and await self._notifier.finalized(attempt_id)
+        return TutorReply(
+            "Mark updated and student notified."
+            if notified
+            else "Mark updated; student notification is pending."
+        )
 
     async def request_resubmission(
         self,
@@ -150,16 +156,21 @@ class ReviewHandler:
         await self._reviews.request_resubmission(
             attempt_id, tutor_id=self._tutor_telegram_id, reason=reason
         )
-        if self._notifier is not None:
-            await self._notifier.resubmission_requested(attempt_id)
-        return TutorReply("Clearer upload requested from student.")
+        notified = self._notifier is not None and await self._notifier.resubmission_requested(
+            attempt_id
+        )
+        return TutorReply(
+            "Clearer upload requested from student."
+            if notified
+            else "Resubmission recorded; student notification is pending."
+        )
 
     def _authorize(self, message: TutorMessage | Message | CallbackQuery, token: str) -> int:
         if not self._is_tutor(message):
             raise InvalidReviewCallback("tutor access required")
         try:
             encoded, supplied_signature = token.split(".", 1)
-            expected = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:32]
+            expected = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:16]
             if not hmac.compare_digest(supplied_signature, expected):
                 raise InvalidReviewCallback("invalid callback signature")
             payload = base64.urlsafe_b64decode(encoded + "==").decode()
@@ -175,7 +186,7 @@ class ReviewHandler:
     def _sign(self, attempt_id: int) -> str:
         payload = f"{attempt_id}:{int(time.time())}".encode()
         encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
-        signature = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:32]
+        signature = hmac.new(self._secret, encoded.encode(), hashlib.sha256).hexdigest()[:16]
         return f"{encoded}.{signature}"
 
     def _is_tutor(self, message: TutorMessage | Message | CallbackQuery) -> bool:
@@ -227,18 +238,26 @@ def create_review_router(handler: ReviewHandler) -> Router:
     async def approve(callback: CallbackQuery) -> None:
         if callback.from_user is None or callback.data is None:
             return
-        reply = await handler.approve(callback, callback.data.removeprefix("review:approve:"))
+        try:
+            reply = await handler.approve(callback, callback.data.removeprefix("review:approve:"))
+        except (InvalidReviewCallback, ReviewUnavailable) as error:
+            await callback.answer(str(error), show_alert=True)
+            return
         await callback.answer(reply.text, show_alert=True)
 
     @router.callback_query(F.data.startswith("review:resubmit:"))
     async def resubmit(callback: CallbackQuery) -> None:
         if callback.from_user is None or callback.data is None:
             return
-        reply = await handler.request_resubmission(
-            callback,
-            callback.data.removeprefix("review:resubmit:"),
-            reason="Tutor requested a clearer upload.",
-        )
+        try:
+            reply = await handler.request_resubmission(
+                callback,
+                callback.data.removeprefix("review:resubmit:"),
+                reason="Tutor requested a clearer upload.",
+            )
+        except (InvalidReviewCallback, ReviewUnavailable) as error:
+            await callback.answer(str(error), show_alert=True)
+            return
         await callback.answer(reply.text, show_alert=True)
 
     return router

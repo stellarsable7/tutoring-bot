@@ -75,3 +75,35 @@ async def test_repeated_tick_is_idempotent(session: AsyncSession) -> None:
 
     assert len(first) == 1
     assert second == ()
+
+
+async def test_multiple_daily_questions_are_distinct_when_catalogue_allows(
+    session: AsyncSession,
+) -> None:
+    student = await enrolled_student(session)
+    session.add(
+        SourceQuestionRow(
+            source_url="https://grail.moe/question-2.pdf",
+            solution_url="https://grail.moe/answer-2.pdf",
+            provider="Holy Grail",
+            school="Example Secondary",
+            year=2024,
+            paper="2",
+            question_number="7",
+            syllabus_version="4049-2026",
+            objective_codes=["A1.factorise"],
+            marks=4,
+            solution_kind="worked_solution",
+            marking_steps=[],
+            tutor_validated=True,
+            eligible=True,
+        )
+    )
+    await session.commit()
+    service = AssignmentService(session)
+    await service.set_schedule(student.id, weekdays={2}, hour=17, count=2)
+
+    created = await service.create_due(now_sg="2026-08-05T17:00:00+08:00")
+
+    assert len(created) == 2
+    assert created[0].source_question_id != created[1].source_question_id

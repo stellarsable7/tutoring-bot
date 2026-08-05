@@ -115,9 +115,7 @@ class MarkAttemptJob:
         )
         for attempt, student in rows:
             feedback = "\n".join(attempt.feedback or [])
-            text = (
-                f"Provisional: {attempt.result_total}/{attempt.result_maximum}\n\n{feedback}"
-            )
+            text = f"Mark finalized: {attempt.result_total}/{attempt.result_maximum}\n\n{feedback}"
             try:
                 await self._notifier.send_message(student.telegram_id, text)
             except OSError:
