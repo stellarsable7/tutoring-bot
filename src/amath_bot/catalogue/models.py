@@ -24,3 +24,7 @@ class SourceQuestion(BaseModel):
     marks: PositiveInt
     solution_kind: SolutionKind | None
     tutor_validated: bool = False
+
+
+class StoredQuestion(SourceQuestion):
+    id: int
