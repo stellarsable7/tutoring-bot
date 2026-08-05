@@ -1,15 +1,17 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from amath_bot.assignments.service import AssignmentService
-from amath_bot.assignments.tables import AssignmentRow
+from amath_bot.assignments.tables import AssignmentRow, ScheduleRow
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import StudentRow
+from amath_bot.reviews.tables import ReviewRow
+from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 from amath_bot.telegram.progress import ProgressReporter
 
 
@@ -40,6 +42,7 @@ class DatabaseTutorControls:
             "assign": self._assign,
             "pause": self._pause,
             "resume": self._resume,
+            "remove": self._remove,
             "progress": self._progress,
         }
         method = methods.get(command)
@@ -144,6 +147,39 @@ class DatabaseTutorControls:
         student.paused = False
         await self._session.commit()
         return f"Delivery resumed for {student.display_name}."
+
+    async def _remove(self, args: tuple[str, ...]) -> str:
+        if len(args) < 2 or args[-1] != "CONFIRM":
+            raise ValueError('usage: /remove "NAME" CONFIRM')
+        display_name = " ".join(args[:-1])
+        student = await self._student(display_name)
+        assignment_ids = select(AssignmentRow.id).where(
+            AssignmentRow.student_id == student.id
+        )
+        attempt_ids = select(AttemptRow.id).where(
+            AttemptRow.assignment_id.in_(assignment_ids)
+        )
+
+        # Delete from the leaves inward so this works with every supported database,
+        # including schemas whose older foreign keys do not declare ON DELETE CASCADE.
+        await self._session.execute(
+            delete(ReviewRow).where(ReviewRow.attempt_id.in_(attempt_ids))
+        )
+        await self._session.execute(
+            delete(AttemptMediaRow).where(AttemptMediaRow.attempt_id.in_(attempt_ids))
+        )
+        await self._session.execute(
+            delete(AttemptRow).where(AttemptRow.assignment_id.in_(assignment_ids))
+        )
+        await self._session.execute(
+            delete(AssignmentRow).where(AssignmentRow.student_id == student.id)
+        )
+        await self._session.execute(
+            delete(ScheduleRow).where(ScheduleRow.student_id == student.id)
+        )
+        await self._session.delete(student)
+        await self._session.commit()
+        return f"Removed {display_name} and all associated bot records."
 
     async def _progress(self, args: tuple[str, ...]) -> str:
         if len(args) != 1:

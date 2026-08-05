@@ -43,6 +43,7 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
     await handler.assign(message, ("Ada", "A1.complete-square"))
     await handler.pause(message, ("Ada",))
     await handler.resume(message, ("Ada",))
+    await handler.remove(message, ("Ada", "CONFIRM"))
     await handler.progress(message, ("Ada",))
 
     assert [name for name, _ in controls.calls] == [
@@ -51,5 +52,6 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
         "assign",
         "pause",
         "resume",
+        "remove",
         "progress",
     ]

@@ -81,6 +81,7 @@ single-use `/start` invite and must consent before an account is created.
 - `/schedule NAME weekdays HOUR [COUNT]` configures delivery.
 - `/assign NAME OBJECTIVE` explicitly assigns an eligible catalogue question.
 - `/pause NAME` pauses delivery; `/resume NAME` resumes it.
+- `/remove "NAME" CONFIRM` permanently removes a student and their associated bot records.
 - `/progress NAME` shows learning progress.
 - `/review` opens the next flagged marking review.
 

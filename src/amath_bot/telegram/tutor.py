@@ -53,6 +53,7 @@ class TutorHandler:
             "/assign NAME OBJECTIVE — queue a question\n"
             "/pause NAME — pause delivery\n"
             "/resume NAME — resume delivery\n"
+            '/remove "NAME" CONFIRM — permanently remove a student\n'
             "/progress NAME — show progress\n"
             "/review — review flagged work"
         )
@@ -68,6 +69,9 @@ class TutorHandler:
 
     async def resume(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "resume", args)
+
+    async def remove(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
+        return await self._run(message, "remove", args)
 
     async def progress(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "progress", args)
@@ -103,6 +107,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
         "assign",
         "pause",
         "resume",
+        "remove",
         "progress",
     ):
         register(name)

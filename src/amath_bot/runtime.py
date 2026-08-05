@@ -98,6 +98,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="assign", description="Assign a question"),
                     BotCommand(command="pause", description="Pause a student"),
                     BotCommand(command="resume", description="Resume a student"),
+                    BotCommand(command="remove", description="Permanently remove a student"),
                     BotCommand(command="progress", description="Show student progress"),
                     BotCommand(command="review", description="Review flagged marking"),
                 ]
