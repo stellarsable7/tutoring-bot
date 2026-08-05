@@ -6,7 +6,7 @@
 
 **Architecture:** Use a modular Python package with SQLAlchemy repositories behind domain services. Keep source discovery separate from eligibility validation so Holy Grail metadata can be imported without making unverified questions assignable.
 
-**Tech Stack:** Python 3.12, uv, Pydantic 2, SQLAlchemy 2, Alembic, PostgreSQL 16, HTTPX, pytest, Ruff, mypy
+**Tech Stack:** Python 3.12, uv, Pydantic 2, SQLAlchemy 2, Alembic, PostgreSQL 16 in production, SQLite in automated tests, HTTPX, pytest, Ruff, mypy
 
 ---
 
@@ -304,6 +304,7 @@ git commit -m "feat: enforce catalogue source eligibility"
 ### Task 4: Persist catalogue records and reject duplicates
 
 **Files:**
+- Modify: `pyproject.toml`
 - Create: `src/amath_bot/db.py`
 - Create: `src/amath_bot/catalogue/tables.py`
 - Create: `src/amath_bot/catalogue/repository.py`
@@ -329,7 +330,7 @@ async def test_source_identity_is_unique(session: AsyncSession, eligible_questio
 
 - [ ] **Step 2: Run against the test database**
 
-Run: `AMATH_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost/amath_test uv run pytest tests/catalogue/test_repository.py -v`
+Run: `AMATH_DATABASE_URL=sqlite+aiosqlite:///:memory: uv run pytest tests/catalogue/test_repository.py -v`
 
 Expected: FAIL because persistence is missing.
 
@@ -346,11 +347,11 @@ class IneligibleSourceQuestion(ValueError):
     pass
 ```
 
-The Alembic migration must create and downgrade the table and named unique constraint `uq_source_identity`.
+Add `aiosqlite>=0.20,<1` to the development dependency group. The Alembic migration must create and downgrade the table and named unique constraint `uq_source_identity`.
 
 - [ ] **Step 4: Run migration and tests**
 
-Run: `uv run alembic upgrade head && uv run pytest tests/catalogue/test_repository.py -v`
+Run: `AMATH_DATABASE_URL=sqlite+aiosqlite:///./amath_test.db uv run alembic upgrade head && AMATH_DATABASE_URL=sqlite+aiosqlite:///:memory: uv run pytest tests/catalogue/test_repository.py -v`
 
 Expected: migration succeeds and repository tests pass.
 
