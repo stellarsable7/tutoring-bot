@@ -30,6 +30,7 @@ packages = ["src/amath_bot"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+addopts = ["--import-mode=importlib"]
 
 [tool.ruff]
 line-length = 100
