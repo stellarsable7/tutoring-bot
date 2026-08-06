@@ -1,4 +1,6 @@
+import asyncio
 from io import BytesIO
+from pathlib import Path
 from typing import Protocol
 
 import fitz  # type: ignore[import-untyped]
@@ -9,12 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.jobs.mark_attempt import MarkingOutcome, MarkingPipelineError
-from amath_bot.providers.ollama_vision import OCRResult
+from amath_bot.providers.ollama_vision import OCRResult, ProposedGrade
 from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 
 
 class VisionOCR(Protocol):
     async def transcribe(self, image: bytes) -> OCRResult: ...
+
+    async def propose_grade(
+        self,
+        *,
+        transcription: tuple[str, ...],
+        solution_images: tuple[bytes, ...],
+        maximum: int,
+    ) -> ProposedGrade: ...
 
 
 class LocalVisionPipeline:
@@ -59,24 +69,47 @@ class LocalVisionPipeline:
         lines = [line for result in results for line in result.lines]
         unclear = [detail for result in results for detail in result.unclear]
         confidence = min((result.confidence for result in results), default=0.0)
+        proposed: ProposedGrade | None = None
+        if question.solution_asset_path:
+            try:
+                solution_payload = await asyncio.to_thread(
+                    Path(question.solution_asset_path).read_bytes
+                )
+            except OSError as error:
+                raise MarkingPipelineError("published solution asset is unavailable") from error
+            solution_images = self._pdf_pages(solution_payload)
+            proposed = await self._ocr.propose_grade(
+                transcription=tuple(lines),
+                solution_images=solution_images,
+                maximum=question.marks,
+            )
+            unclear.extend(proposed.unclear)
         decisions = (
-            {
-                "student_lines": lines,
-                "provider_confidence": confidence,
-                "ocr_complete": all(result.complete for result in results),
-                "unclear": unclear,
-            },
+            tuple(item.model_dump() for item in proposed.decisions)
+            if proposed is not None
+            else (
+                {
+                    "student_lines": lines,
+                    "provider_confidence": confidence,
+                    "ocr_complete": all(result.complete for result in results),
+                    "unclear": unclear,
+                },
+            )
         )
         reasons = ["Tutor approval is required for locally generated marks."]
         if unclear or not all(result.complete for result in results):
             description = "; ".join(unclear) or "The model could not read all of the working."
             reasons.append(f"Tutor clarification required: {description}")
-        if not question.marking_steps:
-            reasons.append("No validated step-by-step marking scheme is stored for this question.")
+        if proposed is None:
+            reasons.append("No question-scoped published solution is stored for this question.")
         return MarkingOutcome(
-            total=0,
+            total=proposed.total if proposed is not None else 0,
             maximum=question.marks,
-            feedback=("OCR transcription prepared for tutor review.",),
+            feedback=(
+                proposed.feedback
+                if proposed is not None
+                else ("OCR transcription prepared for tutor review.",)
+            ),
             review_reasons=tuple(reasons),
             decisions=decisions,
         )
