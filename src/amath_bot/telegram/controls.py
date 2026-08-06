@@ -198,3 +198,7 @@ class DatabaseTutorControls:
         if student is None:
             raise ValueError("student not found")
         return student
+
+    async def student_telegram_id(self, display_name: str) -> int:
+        """Resolve an enrolled student owned by this tutor to their private chat ID."""
+        return (await self._student(display_name)).telegram_id

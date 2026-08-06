@@ -21,6 +21,10 @@ class FakeControls:
         self.calls.append((command, args))
         return f"ran {command}"
 
+    async def student_telegram_id(self, display_name: str) -> int:
+        assert display_name == "Ada"
+        return 200
+
 
 async def test_student_cannot_use_tutor_commands() -> None:
     controls = FakeControls()

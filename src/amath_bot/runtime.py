@@ -100,6 +100,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="resume", description="Resume a student"),
                     BotCommand(command="remove", description="Permanently remove a student"),
                     BotCommand(command="clear", description="Clear recent private-chat messages"),
+                    BotCommand(command="clearstudent", description="Clear a student's recent chat"),
                     BotCommand(command="progress", description="Show student progress"),
                     BotCommand(command="review", description="Review flagged marking"),
                 ]

@@ -84,6 +84,7 @@ single-use `/start` invite and must consent before an account is created.
 - `/remove "NAME" CONFIRM` permanently removes a student and their associated bot records.
 - `/clear CONFIRM` deletes up to 500 recent private-chat messages for both sides, subject to
   Telegram's 48-hour deletion limit.
+- `/clearstudent "NAME" CONFIRM` does the same in an enrolled student's bot chat.
 - `/progress NAME` shows learning progress.
 - `/review` opens the next flagged marking review.
 

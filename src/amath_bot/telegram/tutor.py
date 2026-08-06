@@ -19,6 +19,8 @@ class TutorMessage(Protocol):
 class TutorControls(Protocol):
     async def execute(self, command: str, args: tuple[str, ...]) -> str: ...
 
+    async def student_telegram_id(self, display_name: str) -> int: ...
+
 
 @dataclass(frozen=True)
 class TutorReply:
@@ -56,6 +58,7 @@ class TutorHandler:
             "/resume NAME — resume delivery\n"
             '/remove "NAME" CONFIRM — permanently remove a student\n'
             "/clear CONFIRM — delete recent private-chat messages for both sides\n"
+            '/clearstudent "NAME" CONFIRM — clear a student’s recent bot chat\n'
             "/progress NAME — show progress\n"
             "/review — review flagged work"
         )
@@ -81,6 +84,9 @@ class TutorHandler:
     def is_tutor(self, telegram_id: int) -> bool:
         return telegram_id == self._tutor_telegram_id
 
+    async def student_telegram_id(self, display_name: str) -> int:
+        return await self._controls.student_telegram_id(display_name)
+
 
 def deletion_batches(latest_message_id: int, *, limit: int = 500) -> tuple[list[int], ...]:
     """Return newest-first API batches without crossing Telegram's 100-ID limit."""
@@ -103,25 +109,40 @@ def create_tutor_router(handler: TutorHandler) -> Router:
             except ValueError as error:
                 await message.answer(f"Invalid command: {error}")
                 return
-            if command_name == "clear":
+            if command_name in {"clear", "clearstudent"}:
                 if not handler.is_tutor(message.from_user.id):
                     await message.answer("Tutor access required.")
-                    return
-                if message.chat.type != "private":
-                    await message.answer("/clear is only available in a private bot chat.")
-                    return
-                if args != ("CONFIRM",):
-                    await message.answer(
-                        "This deletes recent messages for both sides. Use /clear CONFIRM."
-                    )
                     return
                 bot = message.bot
                 if bot is None:
                     await message.answer("Could not access the bot connection.")
                     return
-                for message_ids in deletion_batches(message.message_id):
+                if command_name == "clear":
+                    if message.chat.type != "private":
+                        await message.answer("/clear is only available in a private bot chat.")
+                        return
+                    if args != ("CONFIRM",):
+                        await message.answer(
+                            "This deletes recent messages for both sides. Use /clear CONFIRM."
+                        )
+                        return
+                    target_chat_id = message.chat.id
+                    latest_message_id = message.message_id
+                else:
+                    if len(args) < 2 or args[-1] != "CONFIRM":
+                        await message.answer('Use /clearstudent "NAME" CONFIRM.')
+                        return
+                    display_name = " ".join(args[:-1])
                     try:
-                        await bot.delete_messages(message.chat.id, message_ids)
+                        target_chat_id = await handler.student_telegram_id(display_name)
+                    except ValueError as error:
+                        await message.answer(f"Could not run /clearstudent: {error}")
+                        return
+                    marker = await bot.send_message(target_chat_id, "Clearing recent bot chat…")
+                    latest_message_id = marker.message_id
+                for message_ids in deletion_batches(latest_message_id):
+                    try:
+                        await bot.delete_messages(target_chat_id, message_ids)
                     except TelegramAPIError:
                         # A batch can contain messages outside Telegram's 48-hour window.
                         # Newer batches have already been attempted, so stop at this boundary.
@@ -146,6 +167,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
         "remove",
         "progress",
         "clear",
+        "clearstudent",
     ):
         register(name)
     return router
