@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,23 +94,24 @@ class DatabaseTutorControls:
         return f"Schedule saved for {student.display_name} at {hour:02d}:{minute:02d}."
 
     async def _assign(self, args: tuple[str, ...]) -> str:
-        if len(args) != 2:
-            raise ValueError("usage: /assign NAME OBJECTIVE_CODE")
+        if len(args) != 1:
+            raise ValueError('usage: /assign "NAME"')
         student = await self._student(args[0])
-        objective = args[1]
-        questions = tuple(
-            await self._session.scalars(
-                select(SourceQuestionRow)
-                .where(
-                    SourceQuestionRow.eligible.is_(True),
-                    SourceQuestionRow.syllabus_version == student.syllabus_version,
-                )
-                .order_by(SourceQuestionRow.id)
-            )
+        previously_assigned = select(AssignmentRow.source_question_id).where(
+            AssignmentRow.student_id == student.id
         )
-        question = next((q for q in questions if objective in q.objective_codes), None)
+        question = await self._session.scalar(
+            select(SourceQuestionRow)
+            .where(
+                SourceQuestionRow.eligible.is_(True),
+                SourceQuestionRow.syllabus_version == student.syllabus_version,
+                SourceQuestionRow.id.not_in(previously_assigned),
+            )
+            .order_by(func.random())
+            .limit(1)
+        )
         if question is None:
-            raise ValueError("no eligible question matches that objective")
+            raise ValueError("this student has already received every eligible question")
         existing_count = len(
             tuple(
                 await self._session.scalars(
@@ -128,7 +129,7 @@ class DatabaseTutorControls:
             scheduled_date=datetime.now(ZoneInfo(self._timezone)).date(),
             sequence_number=existing_count + 1,
             status="pending",
-            selection_reason=f"tutor assigned objective {objective}",
+            selection_reason="tutor requested a random unseen question",
         )
         self._session.add(row)
         await self._session.commit()

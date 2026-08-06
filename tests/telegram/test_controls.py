@@ -84,3 +84,54 @@ async def test_remove_requires_confirmation_and_deletes_student(session: AsyncSe
     removed = await controls.execute("remove", ("Ada", "Lovelace", "CONFIRM"))
     assert removed == "Removed Ada Lovelace and all associated bot records."
     assert await session.scalar(select(StudentRow)) is None
+
+
+async def test_assign_chooses_an_unseen_question_without_an_objective(
+    session: AsyncSession,
+) -> None:
+    session.add(TutorRow(telegram_id=100))
+    student = StudentRow(
+        telegram_id=200,
+        tutor_telegram_id=100,
+        display_name="Ada Lovelace",
+        consented_at=datetime.now(UTC),
+    )
+    questions = [
+        SourceQuestionRow(
+            source_url=f"https://example.test/q{number}",
+            solution_url=f"https://example.test/s{number}",
+            provider="test",
+            school="Example",
+            year=2025,
+            paper="1",
+            question_number=str(number),
+            syllabus_version="4049-2026",
+            objective_codes=["A1.sign"],
+            marks=3,
+            solution_kind="mark_scheme",
+            marking_steps=[],
+            tutor_validated=True,
+            eligible=True,
+        )
+        for number in (1, 2)
+    ]
+    session.add_all([student, *questions])
+    await session.commit()
+    controls = DatabaseTutorControls(
+        session,
+        tutor_telegram_id=100,
+        bot_username="amath_practice_bot",
+        people=FakePeople(),  # type: ignore[arg-type]
+        assignments=FakeAssignments(),  # type: ignore[arg-type]
+    )
+
+    first = await controls.execute("assign", ("Ada Lovelace",))
+    second = await controls.execute("assign", ("Ada Lovelace",))
+    assignments = tuple(await session.scalars(select(AssignmentRow).order_by(AssignmentRow.id)))
+
+    assert first == "Question queued for Ada Lovelace."
+    assert second == "Question queued for Ada Lovelace."
+    assert len(assignments) == 2
+    assert assignments[0].source_question_id != assignments[1].source_question_id
+from amath_bot.assignments.tables import AssignmentRow
+from amath_bot.catalogue.tables import SourceQuestionRow

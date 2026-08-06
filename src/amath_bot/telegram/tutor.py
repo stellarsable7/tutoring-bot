@@ -53,7 +53,7 @@ class TutorHandler:
             "/invite — create a student invite\n"
             "/students — list students\n"
             "/schedule NAME weekdays HH:MM [COUNT] — set delivery\n"
-            "/assign NAME OBJECTIVE — queue a question\n"
+            '/assign "NAME" — send a random unseen question\n'
             "/pause NAME — pause delivery\n"
             "/resume NAME — resume delivery\n"
             '/remove "NAME" CONFIRM — permanently remove a student\n'
