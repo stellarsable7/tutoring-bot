@@ -82,6 +82,8 @@ single-use `/start` invite and must consent before an account is created.
 - `/assign NAME OBJECTIVE` explicitly assigns an eligible catalogue question.
 - `/pause NAME` pauses delivery; `/resume NAME` resumes it.
 - `/remove "NAME" CONFIRM` permanently removes a student and their associated bot records.
+- `/clear CONFIRM` deletes up to 500 recent private-chat messages for both sides, subject to
+  Telegram's 48-hour deletion limit.
 - `/progress NAME` shows learning progress.
 - `/review` opens the next flagged marking review.
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from amath_bot.telegram.tutor import TutorHandler
+from amath_bot.telegram.tutor import TutorHandler, deletion_batches
 
 
 @dataclass(frozen=True)
@@ -55,3 +55,11 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
         "remove",
         "progress",
     ]
+
+
+def test_deletion_batches_are_newest_first_and_bounded() -> None:
+    batches = deletion_batches(250, limit=205)
+
+    assert [len(batch) for batch in batches] == [100, 100, 5]
+    assert batches[0][0] == 250
+    assert batches[-1][-1] == 46

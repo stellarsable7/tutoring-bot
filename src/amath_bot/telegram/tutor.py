@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from aiogram import Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -54,6 +55,7 @@ class TutorHandler:
             "/pause NAME — pause delivery\n"
             "/resume NAME — resume delivery\n"
             '/remove "NAME" CONFIRM — permanently remove a student\n'
+            "/clear CONFIRM — delete recent private-chat messages for both sides\n"
             "/progress NAME — show progress\n"
             "/review — review flagged work"
         )
@@ -76,6 +78,16 @@ class TutorHandler:
     async def progress(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "progress", args)
 
+    def is_tutor(self, telegram_id: int) -> bool:
+        return telegram_id == self._tutor_telegram_id
+
+
+def deletion_batches(latest_message_id: int, *, limit: int = 500) -> tuple[list[int], ...]:
+    """Return newest-first API batches without crossing Telegram's 100-ID limit."""
+    oldest = max(1, latest_message_id - limit + 1)
+    ids = list(range(latest_message_id, oldest - 1, -1))
+    return tuple(ids[index : index + 100] for index in range(0, len(ids), 100))
+
 
 def create_tutor_router(handler: TutorHandler) -> Router:
     router = Router(name="tutor-controls")
@@ -90,6 +102,30 @@ def create_tutor_router(handler: TutorHandler) -> Router:
                 args = tuple(shlex.split(text)[1:])
             except ValueError as error:
                 await message.answer(f"Invalid command: {error}")
+                return
+            if command_name == "clear":
+                if not handler.is_tutor(message.from_user.id):
+                    await message.answer("Tutor access required.")
+                    return
+                if message.chat.type != "private":
+                    await message.answer("/clear is only available in a private bot chat.")
+                    return
+                if args != ("CONFIRM",):
+                    await message.answer(
+                        "This deletes recent messages for both sides. Use /clear CONFIRM."
+                    )
+                    return
+                bot = message.bot
+                if bot is None:
+                    await message.answer("Could not access the bot connection.")
+                    return
+                for message_ids in deletion_batches(message.message_id):
+                    try:
+                        await bot.delete_messages(message.chat.id, message_ids)
+                    except TelegramAPIError:
+                        # A batch can contain messages outside Telegram's 48-hour window.
+                        # Newer batches have already been attempted, so stop at this boundary.
+                        break
                 return
             method = getattr(handler, command_name)
             reply = (
@@ -109,6 +145,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
         "resume",
         "remove",
         "progress",
+        "clear",
     ):
         register(name)
     return router
