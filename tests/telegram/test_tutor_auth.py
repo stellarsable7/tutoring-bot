@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from amath_bot.telegram.tutor import TutorHandler, deletion_batches
+from amath_bot.telegram.tutor import TutorHandler, command_args, deletion_batches
 
 
 @dataclass(frozen=True)
@@ -67,3 +67,11 @@ def test_deletion_batches_are_newest_first_and_bounded() -> None:
     assert [len(batch) for batch in batches] == [100, 100, 5]
     assert batches[0][0] == 250
     assert batches[-1][-1] == 46
+
+
+def test_command_args_accept_mobile_whitespace_and_confirmation_case() -> None:
+    assert command_args('/clear\u00a0confirm') == ("confirm",)
+    assert command_args('/clearstudent\u00a0"Ada Lovelace"\u00a0CONFIRM') == (
+        "Ada Lovelace",
+        "CONFIRM",
+    )

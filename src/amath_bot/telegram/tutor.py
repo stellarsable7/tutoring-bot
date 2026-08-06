@@ -95,6 +95,11 @@ def deletion_batches(latest_message_id: int, *, limit: int = 500) -> tuple[list[
     return tuple(ids[index : index + 100] for index in range(0, len(ids), 100))
 
 
+def command_args(text: str) -> tuple[str, ...]:
+    """Parse quoted arguments while normalizing mobile-keyboard Unicode whitespace."""
+    return tuple(shlex.split(" ".join(text.split()))[1:])
+
+
 def create_tutor_router(handler: TutorHandler) -> Router:
     router = Router(name="tutor-controls")
 
@@ -105,7 +110,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
                 return
             text = message.text or ""
             try:
-                args = tuple(shlex.split(text)[1:])
+                args = command_args(text)
             except ValueError as error:
                 await message.answer(f"Invalid command: {error}")
                 return
@@ -121,7 +126,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
                     if message.chat.type != "private":
                         await message.answer("/clear is only available in a private bot chat.")
                         return
-                    if args != ("CONFIRM",):
+                    if len(args) != 1 or args[0].strip().casefold() != "confirm":
                         await message.answer(
                             "This deletes recent messages for both sides. Use /clear CONFIRM."
                         )
@@ -129,7 +134,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
                     target_chat_id = message.chat.id
                     latest_message_id = message.message_id
                 else:
-                    if len(args) < 2 or args[-1] != "CONFIRM":
+                    if len(args) < 2 or args[-1].strip().casefold() != "confirm":
                         await message.answer('Use /clearstudent "NAME" CONFIRM.')
                         return
                     display_name = " ".join(args[:-1])
