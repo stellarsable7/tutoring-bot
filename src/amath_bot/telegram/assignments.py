@@ -39,8 +39,8 @@ class AssignmentRenderer:
     async def render(self, assignment: AssignmentDelivery) -> RenderedAssignment:
         estimated_minutes = max(1, round(assignment.marks * 1.5))
         text = (
-            f"{assignment.scheduled_date:%d %b %Y} — Question {assignment.question_number}\n\n"
-            f"Paper {assignment.paper}\n"
+            f"{assignment.scheduled_date.isoformat()} Question(s)\n\n"
+            f"Paper {assignment.paper} · Question {assignment.question_number}\n"
             f"{assignment.marks} marks · about {estimated_minutes} minutes\n\n"
             f"{assignment.source_url}"
         )
@@ -103,8 +103,7 @@ class AssignmentDeliveryService:
                         FSInputFile(
                             payload.asset_path,
                             filename=(
-                                f"{payload.scheduled_date.isoformat()} "
-                                f"Question {payload.question_number}.pdf"
+                                f"{payload.scheduled_date.isoformat()} Question(s).pdf"
                             ),
                         ),
                         caption=rendered.text.replace(f"\n\n{payload.source_url}", ""),

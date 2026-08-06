@@ -65,8 +65,8 @@ async def test_delivery_contains_link_and_question_identity() -> None:
     message = await AssignmentRenderer().render(assignment)
 
     assert str(assignment.source_url) in message.text
-    assert "05 Aug 2026 — Question 6" in message.text
-    assert "Paper 1" in message.text
+    assert "2026-08-05 Question(s)" in message.text
+    assert "Paper 1 · Question 6" in message.text
     assert "5 marks" in message.text
     assert "about 8 minutes" in message.text
     assert "solution" not in message.text.lower()
@@ -174,6 +174,6 @@ async def test_question_asset_is_sent_without_full_paper_link(
     assert await AssignmentDeliveryService(session, sender).deliver_pending() == 1
     assert sender.sent == []
     assert sender.documents[0][1] == str(asset)
-    assert sender.documents[0][2] == "2026-08-06 Question 6.pdf"
+    assert sender.documents[0][2] == "2026-08-06 Question(s).pdf"
     assert "full-paper.pdf" not in sender.documents[0][3]
-    assert "06 Aug 2026 — Question 6" in sender.documents[0][3]
+    assert "2026-08-06 Question(s)" in sender.documents[0][3]
