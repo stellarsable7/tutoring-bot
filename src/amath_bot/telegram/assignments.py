@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Protocol
@@ -18,6 +19,8 @@ class AssignmentDelivery(BaseModel):
 
     assignment_id: int
     student_telegram_id: int
+    student_display_name: str = "Student"
+    tutor_telegram_id: int | None = None
     source_url: HttpUrl
     asset_path: str | None = None
     provider: str
@@ -85,6 +88,8 @@ class AssignmentDeliveryService:
             payload = AssignmentDelivery(
                 assignment_id=assignment.id,
                 student_telegram_id=student.telegram_id,
+                student_display_name=student.display_name,
+                tutor_telegram_id=student.tutor_telegram_id,
                 source_url=question.source_url,
                 asset_path=question.asset_path,
                 provider=question.provider,
@@ -108,8 +113,28 @@ class AssignmentDeliveryService:
                         ),
                         caption=None,
                     )
+                    if payload.tutor_telegram_id is not None:
+                        safe_name = re.sub(
+                            r"[^\w .'-]+", "_", payload.student_display_name, flags=re.UNICODE
+                        ).strip() or "Student"
+                        await self._sender.send_document(
+                            payload.tutor_telegram_id,
+                            FSInputFile(
+                                payload.asset_path,
+                                filename=(
+                                    f"{safe_name}-{payload.scheduled_date.isoformat()}.pdf"
+                                ),
+                            ),
+                            caption=None,
+                        )
                 else:
                     await self._sender.send_message(rendered.chat_id, rendered.text)
+                    if payload.tutor_telegram_id is not None:
+                        await self._sender.send_message(
+                            payload.tutor_telegram_id,
+                            f"{payload.student_display_name}-{payload.scheduled_date.isoformat()}\n"
+                            f"{rendered.text}",
+                        )
             except (TelegramAPIError, OSError):
                 assignment.status = "pending"
                 await self._session.commit()

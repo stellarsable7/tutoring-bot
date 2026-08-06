@@ -14,6 +14,7 @@ class SourceQuestion(BaseModel):
 
     source_url: HttpUrl
     asset_path: str | None = None
+    solution_asset_path: str | None = None
     solution_url: HttpUrl | None
     provider: str
     school: str

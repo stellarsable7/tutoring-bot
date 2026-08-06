@@ -23,6 +23,7 @@ class SourceQuestionRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_url: Mapped[str] = mapped_column(String(2048))
     asset_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    solution_asset_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     solution_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     provider: Mapped[str] = mapped_column(String(120))
     school: Mapped[str] = mapped_column(String(240))

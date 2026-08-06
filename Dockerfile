@@ -22,6 +22,7 @@ COPY --chown=amath:amath pyproject.toml alembic.ini ./
 COPY --chown=amath:amath alembic ./alembic
 COPY --chown=amath:amath src ./src
 COPY --chown=amath:amath data/question_assets ./data/question_assets
+COPY --chown=amath:amath data/solution_assets ./data/solution_assets
 USER amath
 
 CMD ["sh", "-c", "alembic upgrade head && python -m amath_bot.app"]

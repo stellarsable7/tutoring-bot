@@ -122,7 +122,10 @@ async def test_failed_send_returns_assignment_to_pending_for_retry(session: Asyn
     assert await delivery.deliver_pending() == 1
     await session.refresh(assignment)
     assert assignment.status == "delivered"
-    assert len(sender.sent) == 1
+    assert len(sender.sent) == 2
+    assert sender.sent[0][0] == 200
+    assert sender.sent[1][0] == 100
+    assert sender.sent[1][1].startswith("Ada-2026-08-05")
 
 
 async def test_question_asset_is_sent_without_full_paper_link(
@@ -176,3 +179,7 @@ async def test_question_asset_is_sent_without_full_paper_link(
     assert sender.documents[0][1] == str(asset)
     assert sender.documents[0][2] == "2026-08-06 Question(s).pdf"
     assert sender.documents[0][3] == ""
+    assert sender.documents[1][0] == 100
+    assert sender.documents[1][1] == str(asset)
+    assert sender.documents[1][2] == "Ada-2026-08-06.pdf"
+    assert sender.documents[1][3] == ""
