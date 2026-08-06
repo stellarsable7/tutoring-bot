@@ -51,7 +51,7 @@ class TelegramSender(Protocol):
     async def send_message(self, chat_id: int, text: str) -> object: ...
 
     async def send_document(
-        self, chat_id: int, document: FSInputFile, *, caption: str
+        self, chat_id: int, document: FSInputFile, *, caption: str | None = None
     ) -> object: ...
 
 
@@ -106,7 +106,7 @@ class AssignmentDeliveryService:
                                 f"{payload.scheduled_date.isoformat()} Question(s).pdf"
                             ),
                         ),
-                        caption=rendered.text.replace(f"\n\n{payload.source_url}", ""),
+                        caption=None,
                     )
                 else:
                     await self._sender.send_message(rendered.chat_id, rendered.text)

@@ -29,11 +29,11 @@ class FlakySender:
         return object()
 
     async def send_document(
-        self, chat_id: int, document: FSInputFile, *, caption: str
+        self, chat_id: int, document: FSInputFile, *, caption: str | None = None
     ) -> object:
         if self.fail:
             raise OSError("temporary Telegram outage")
-        self.documents.append((chat_id, str(document.path), document.filename, caption))
+        self.documents.append((chat_id, str(document.path), document.filename, caption or ""))
         return object()
 
 
@@ -175,5 +175,4 @@ async def test_question_asset_is_sent_without_full_paper_link(
     assert sender.sent == []
     assert sender.documents[0][1] == str(asset)
     assert sender.documents[0][2] == "2026-08-06 Question(s).pdf"
-    assert "full-paper.pdf" not in sender.documents[0][3]
-    assert "2026-08-06 Question(s)" in sender.documents[0][3]
+    assert sender.documents[0][3] == ""
