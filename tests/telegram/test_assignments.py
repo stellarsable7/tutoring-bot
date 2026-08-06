@@ -20,7 +20,7 @@ class FlakySender:
     def __init__(self) -> None:
         self.fail = True
         self.sent: list[tuple[int, str]] = []
-        self.documents: list[tuple[int, str, str]] = []
+        self.documents: list[tuple[int, str, str | None, str]] = []
 
     async def send_message(self, chat_id: int, text: str) -> object:
         if self.fail:
@@ -33,7 +33,7 @@ class FlakySender:
     ) -> object:
         if self.fail:
             raise OSError("temporary Telegram outage")
-        self.documents.append((chat_id, str(document.path), caption))
+        self.documents.append((chat_id, str(document.path), document.filename, caption))
         return object()
 
 
@@ -65,7 +65,8 @@ async def test_delivery_contains_link_and_question_identity() -> None:
     message = await AssignmentRenderer().render(assignment)
 
     assert str(assignment.source_url) in message.text
-    assert "Paper 1 · Question 6" in message.text
+    assert "05 Aug 2026 — Question 6" in message.text
+    assert "Paper 1" in message.text
     assert "5 marks" in message.text
     assert "about 8 minutes" in message.text
     assert "solution" not in message.text.lower()
@@ -173,5 +174,6 @@ async def test_question_asset_is_sent_without_full_paper_link(
     assert await AssignmentDeliveryService(session, sender).deliver_pending() == 1
     assert sender.sent == []
     assert sender.documents[0][1] == str(asset)
-    assert "full-paper.pdf" not in sender.documents[0][2]
-    assert "Question 6" in sender.documents[0][2]
+    assert sender.documents[0][2] == "2026-08-06 Question 6.pdf"
+    assert "full-paper.pdf" not in sender.documents[0][3]
+    assert "06 Aug 2026 — Question 6" in sender.documents[0][3]
