@@ -1,15 +1,220 @@
 [
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"1","syllabus_version":"4049-2026","objective_codes":["A1.sign","A2.roots"],"marks":7,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"2","syllabus_version":"4049-2026","objective_codes":["A4.polynomial-operations","A4.partial-fractions"],"marks":6,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"3","syllabus_version":"4049-2026","objective_codes":["G1.identities","G1.proofs"],"marks":5,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"4","syllabus_version":"4049-2026","objective_codes":["C1.product-quotient-chain","C1.basic-integrals"],"marks":9,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"5","syllabus_version":"4049-2026","objective_codes":["G1.equations"],"marks":5,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"6","syllabus_version":"4049-2026","objective_codes":["C1.monotonicity-stationary"],"marks":4,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"7","syllabus_version":"4049-2026","objective_codes":["A2.simultaneous","A3.operations"],"marks":6,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"8","syllabus_version":"4049-2026","objective_codes":["A6.functions","C1.monotonicity-stationary"],"marks":9,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"9","syllabus_version":"4049-2026","objective_codes":["C1.differentiation-applications"],"marks":5,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"10","syllabus_version":"4049-2026","objective_codes":["A1.models","A1.complete-square"],"marks":8,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"11","syllabus_version":"4049-2026","objective_codes":["G2.lines","G2.area"],"marks":8,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"12","syllabus_version":"4049-2026","objective_codes":["A6.models","G2.linearise"],"marks":10,"solution_kind":"mark_scheme","tutor_validated":true},
-  {"source_url":"https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf","solution_url":"https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf","provider":"Holy Grail","school":"St. Patrick's School","year":2025,"paper":"1","question_number":"13","syllabus_version":"4049-2026","objective_codes":["G2.lines","G2.circles"],"marks":10,"solution_kind":"mark_scheme","tutor_validated":true}
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=129",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "1",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A1.sign",
+      "A2.roots"
+    ],
+    "marks": 7,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=130",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "2",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A4.polynomial-operations",
+      "A4.partial-fractions"
+    ],
+    "marks": 6,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=131",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "3",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "G1.identities",
+      "G1.proofs"
+    ],
+    "marks": 5,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=132",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "4",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "C1.product-quotient-chain",
+      "C1.basic-integrals"
+    ],
+    "marks": 9,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=133",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "5",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "G1.equations"
+    ],
+    "marks": 5,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=134",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "6",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "C1.monotonicity-stationary"
+    ],
+    "marks": 4,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=135",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "7",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A2.simultaneous",
+      "A3.operations"
+    ],
+    "marks": 6,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=136",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "8",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A6.functions",
+      "C1.monotonicity-stationary"
+    ],
+    "marks": 9,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=138",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "9",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "C1.differentiation-applications"
+    ],
+    "marks": 5,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=139",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "10",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A1.models",
+      "A1.complete-square"
+    ],
+    "marks": 8,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=140",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "11",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "G2.lines",
+      "G2.area"
+    ],
+    "marks": 8,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=142",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "12",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "A6.models",
+      "G2.linearise"
+    ],
+    "marks": 10,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  },
+  {
+    "source_url": "https://document.grail.moe/98ce512ab25842a6a8d302770cea1ddf.pdf#page=144",
+    "solution_url": "https://document.grail.moe/633b2db7c8f14794bb93b5849cdc9b7e.pdf",
+    "provider": "Holy Grail",
+    "school": "St. Patrick's School",
+    "year": 2025,
+    "paper": "1",
+    "question_number": "13",
+    "syllabus_version": "4049-2026",
+    "objective_codes": [
+      "G2.lines",
+      "G2.circles"
+    ],
+    "marks": 10,
+    "solution_kind": "mark_scheme",
+    "tutor_validated": true
+  }
 ]
