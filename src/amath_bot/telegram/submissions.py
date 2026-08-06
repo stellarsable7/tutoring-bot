@@ -103,12 +103,12 @@ def create_submission_router(handler: SubmissionHandler) -> Router:
         if message.from_user is None:
             return
         try:
-            attempt = await handler.submit(student_telegram_id=message.from_user.id)
+            await handler.submit(student_telegram_id=message.from_user.id)
         except AttemptNotFound:
             await message.answer("There is no saved submission to send.")
             return
         await message.answer(
-            f"Submission {attempt.id} received. I’ll read it locally, then your tutor will review it."
+            "Submission received. I’ll read it locally, then your tutor will review it."
         )
 
     return router

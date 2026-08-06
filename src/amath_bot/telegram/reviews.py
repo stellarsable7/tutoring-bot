@@ -171,12 +171,19 @@ class ReviewHandler:
         self,
         message: TutorMessage | Message,
         *,
-        attempt_id: int,
         total: int,
         feedback: str,
     ) -> TutorReply:
         if not self._is_tutor(message):
             return TutorReply("Tutor access required.")
+        attempt_id = await self._session.scalar(
+            select(AttemptRow.id)
+            .where(AttemptRow.status == "flagged")
+            .order_by(AttemptRow.created_at, AttemptRow.id)
+            .limit(1)
+        )
+        if attempt_id is None:
+            return TutorReply("No submission is awaiting review.")
         await self._reviews.override(
             attempt_id,
             tutor_id=self._tutor_telegram_id,
@@ -249,7 +256,7 @@ def create_review_router(handler: ReviewHandler) -> Router:
             await message.answer(f"OCR transcription:\n{transcription}"[:4000])
         reasons = ", ".join(result.review_reasons) or "unspecified"
         text = (
-            f"Attempt {result.attempt_id}: {result.proposed_total}/{result.maximum}\n"
+            f"Proposed mark: {result.proposed_total}/{result.maximum}\n"
             f"Review reasons: {reasons}\nScheme: {result.scheme_url}\n"
             f"Media expires after the 24-hour review window."
         )
@@ -270,16 +277,15 @@ def create_review_router(handler: ReviewHandler) -> Router:
 
     @router.message(Command("mark"))
     async def specify_mark(message: Message) -> None:
-        parts = (message.text or "").split(maxsplit=3)
-        if len(parts) < 4:
-            await message.answer("Use: /mark ATTEMPT_ID SCORE feedback")
+        parts = (message.text or "").split(maxsplit=2)
+        if len(parts) < 3:
+            await message.answer("Use: /mark SCORE feedback")
             return
         try:
             reply = await handler.specify_mark(
                 message,
-                attempt_id=int(parts[1]),
-                total=int(parts[2]),
-                feedback=parts[3],
+                total=int(parts[1]),
+                feedback=parts[2],
             )
         except (ValueError, ReviewUnavailable) as error:
             await message.answer(f"Could not save that mark: {error}")

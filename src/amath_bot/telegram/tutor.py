@@ -61,7 +61,7 @@ class TutorHandler:
             '/clearstudent "NAME" CONFIRM — clear a student’s recent bot chat\n'
             "/progress NAME — show progress\n"
             "/review — review flagged work\n"
-            "/mark ATTEMPT_ID SCORE feedback — specify a reviewed mark"
+            "/mark SCORE feedback — specify the mark for the current review"
         )
 
     async def schedule(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
