@@ -60,7 +60,8 @@ class TutorHandler:
             "/clear CONFIRM — delete recent private-chat messages for both sides\n"
             '/clearstudent "NAME" CONFIRM — clear a student’s recent bot chat\n'
             "/progress NAME — show progress\n"
-            "/review — review flagged work"
+            "/review — review flagged work\n"
+            "/mark ATTEMPT_ID SCORE feedback — specify a reviewed mark"
         )
 
     async def schedule(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:

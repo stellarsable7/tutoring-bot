@@ -13,19 +13,30 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from amath_bot.assignments.service import AssignmentService
+from amath_bot.jobs.mark_attempt import MarkAttemptJob
+from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
+from amath_bot.providers.ollama_vision import OllamaVisionOCR
 from amath_bot.reviews.service import ReviewService
 from amath_bot.scheduler import DailyAssignmentJob, create_scheduler
 from amath_bot.settings import Settings
+from amath_bot.submissions.service import SubmissionService
 from amath_bot.telegram.assignments import AssignmentDeliveryService
 from amath_bot.telegram.bot import create_bot, create_dispatcher
 from amath_bot.telegram.controls import DatabaseTutorControls
 from amath_bot.telegram.review_notifications import TelegramReviewNotifier
 from amath_bot.telegram.reviews import ReviewHandler
+from amath_bot.telegram.submissions import SubmissionHandler
 from amath_bot.telegram.tutor import TutorHandler
 
 logger = logging.getLogger(__name__)
+
+
+class _DeferredMediaDeletion:
+    async def delete_attempt_media(self, attempt_id: int) -> None:
+        # Telegram owns the original upload. Database references remain available for tutor review.
+        return None
 
 
 class SessionCleanupMiddleware(BaseMiddleware):
@@ -47,6 +58,7 @@ class SessionCleanupMiddleware(BaseMiddleware):
 async def run_polling(settings: Settings) -> None:
     if settings.telegram_bot_token is None or settings.tutor_telegram_id is None:
         raise ValueError("Telegram token and tutor ID are required")
+    tutor_telegram_id = settings.tutor_telegram_id
     if settings.review_callback_secret is None or len(settings.review_callback_secret) < 32:
         raise ValueError("review callback secret must be at least 32 characters")
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
@@ -85,8 +97,12 @@ async def run_polling(settings: Settings) -> None:
                 callback_secret=settings.review_callback_secret,
                 notifier=TelegramReviewNotifier(bot_session, bot),
             )
+            submissions = SubmissionHandler(SubmissionService(bot_session), bot_session)
             dispatcher = create_dispatcher(
-                people, tutor_handler=tutor, review_handler=review
+                people,
+                tutor_handler=tutor,
+                review_handler=review,
+                submission_handler=submissions,
             )
             dispatcher.update.outer_middleware(SessionCleanupMiddleware(scoped))
             await bot.set_my_commands(
@@ -103,6 +119,8 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="clearstudent", description="Clear a student's recent chat"),
                     BotCommand(command="progress", description="Show student progress"),
                     BotCommand(command="review", description="Review flagged marking"),
+                    BotCommand(command="mark", description="Specify a reviewed mark"),
+                    BotCommand(command="submit", description="Submit uploaded working for review"),
                 ]
             )
             scheduler_job = DailyAssignmentJob(
@@ -110,6 +128,38 @@ async def run_polling(settings: Settings) -> None:
                 AssignmentDeliveryService(scheduler_session, bot),
             )
             scheduler = create_scheduler(scheduler_job, timezone=settings.timezone)
+
+            async def mark_pending() -> None:
+                async with factory() as marking_session:
+                    pipeline = LocalVisionPipeline(
+                        marking_session,
+                        bot,
+                        OllamaVisionOCR(
+                            base_url=settings.ollama_url,
+                            model=settings.ollama_vision_model,
+                        ),
+                    )
+                    processed = await MarkAttemptJob(
+                        marking_session,
+                        pipeline=pipeline,
+                        notifier=bot,
+                        media=_DeferredMediaDeletion(),
+                    ).run_pending()
+                    if processed:
+                        await bot.send_message(
+                            tutor_telegram_id,
+                            f"{processed} submission(s) are ready. Use /review to inspect them.",
+                        )
+
+            scheduler.add_job(
+                mark_pending,
+                trigger="interval",
+                seconds=settings.marking_interval_seconds,
+                id="local-vision-marking",
+                max_instances=1,
+                coalesce=True,
+                replace_existing=True,
+            )
             scheduler.start()
             logger.info("starting Telegram polling")
             await dispatcher.start_polling(bot)

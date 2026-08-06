@@ -4,6 +4,7 @@ from amath_bot.people.service import PeopleService
 from amath_bot.telegram.fallback import create_fallback_router
 from amath_bot.telegram.reviews import ReviewHandler, create_review_router
 from amath_bot.telegram.start import StartHandler, create_start_router
+from amath_bot.telegram.submissions import SubmissionHandler, create_submission_router
 from amath_bot.telegram.tutor import TutorHandler, create_tutor_router
 
 
@@ -12,6 +13,7 @@ def create_dispatcher(
     *,
     tutor_handler: TutorHandler | None = None,
     review_handler: ReviewHandler | None = None,
+    submission_handler: SubmissionHandler | None = None,
 ) -> Dispatcher:
     dispatcher = Dispatcher()
     dispatcher.include_router(create_start_router(StartHandler(people)))
@@ -19,6 +21,8 @@ def create_dispatcher(
         dispatcher.include_router(create_tutor_router(tutor_handler))
     if review_handler is not None:
         dispatcher.include_router(create_review_router(review_handler))
+    if submission_handler is not None:
+        dispatcher.include_router(create_submission_router(submission_handler))
     dispatcher.include_router(create_fallback_router())
     return dispatcher
 

@@ -32,6 +32,7 @@ class ReviewNotifier(Protocol):
 class ReviewCard:
     attempt_id: int
     media_file_ids: tuple[str, ...]
+    media_kinds: tuple[str, ...]
     transcription: tuple[str, ...]
     scheme_url: str
     proposed_total: int
@@ -80,9 +81,9 @@ class ReviewHandler:
         if row is None:
             return TutorReply("No submissions are awaiting review.")
         attempt, scheme_url = row
-        media = tuple(
+        media_rows = tuple(
             await self._session.scalars(
-                select(AttemptMediaRow.telegram_file_id)
+                select(AttemptMediaRow)
                 .where(AttemptMediaRow.attempt_id == attempt.id)
                 .order_by(AttemptMediaRow.position)
             )
@@ -96,7 +97,8 @@ class ReviewHandler:
         confidence = self._confidence(decisions)
         return ReviewCard(
             attempt_id=attempt.id,
-            media_file_ids=media,
+            media_file_ids=tuple(item.telegram_file_id for item in media_rows),
+            media_kinds=tuple(item.media_kind for item in media_rows),
             transcription=transcription,
             scheme_url=scheme_url,
             proposed_total=attempt.result_total or 0,
@@ -165,6 +167,30 @@ class ReviewHandler:
             else "Resubmission recorded; student notification is pending."
         )
 
+    async def specify_mark(
+        self,
+        message: TutorMessage | Message,
+        *,
+        attempt_id: int,
+        total: int,
+        feedback: str,
+    ) -> TutorReply:
+        if not self._is_tutor(message):
+            return TutorReply("Tutor access required.")
+        await self._reviews.override(
+            attempt_id,
+            tutor_id=self._tutor_telegram_id,
+            total=total,
+            feedback=feedback,
+            reason="Tutor specified the mark after local OCR review.",
+        )
+        notified = self._notifier is not None and await self._notifier.finalized(attempt_id)
+        return TutorReply(
+            "Mark saved and student notified."
+            if notified
+            else "Mark saved; student notification is pending."
+        )
+
     def _authorize(self, message: TutorMessage | Message | CallbackQuery, token: str) -> int:
         if not self._is_tutor(message):
             raise InvalidReviewCallback("tutor access required")
@@ -213,6 +239,14 @@ def create_review_router(handler: ReviewHandler) -> Router:
         if isinstance(result, TutorReply):
             await message.answer(result.text)
             return
+        for file_id, kind in zip(result.media_file_ids, result.media_kinds, strict=True):
+            if kind == "pdf":
+                await message.answer_document(file_id)
+            else:
+                await message.answer_photo(file_id)
+        if result.transcription:
+            transcription = "\n".join(result.transcription)
+            await message.answer(f"OCR transcription:\n{transcription}"[:4000])
         reasons = ", ".join(result.review_reasons) or "unspecified"
         text = (
             f"Attempt {result.attempt_id}: {result.proposed_total}/{result.maximum}\n"
@@ -233,6 +267,24 @@ def create_review_router(handler: ReviewHandler) -> Router:
             ]
         )
         await message.answer(text, reply_markup=keyboard)
+
+    @router.message(Command("mark"))
+    async def specify_mark(message: Message) -> None:
+        parts = (message.text or "").split(maxsplit=3)
+        if len(parts) < 4:
+            await message.answer("Use: /mark ATTEMPT_ID SCORE feedback")
+            return
+        try:
+            reply = await handler.specify_mark(
+                message,
+                attempt_id=int(parts[1]),
+                total=int(parts[2]),
+                feedback=parts[3],
+            )
+        except (ValueError, ReviewUnavailable) as error:
+            await message.answer(f"Could not save that mark: {error}")
+            return
+        await message.answer(reply.text)
 
     @router.callback_query(F.data.startswith("review:approve:"))
     async def approve(callback: CallbackQuery) -> None:

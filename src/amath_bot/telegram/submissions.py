@@ -1,3 +1,6 @@
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,3 +59,56 @@ class SubmissionHandler:
             raise AttemptNotFound("no delivered assignment for this student")
         return assignment_id
 
+
+def create_submission_router(handler: SubmissionHandler) -> Router:
+    router = Router(name="student-submissions")
+
+    @router.message(F.photo)
+    async def receive_photo(message: Message) -> None:
+        if message.from_user is None or not message.photo:
+            return
+        try:
+            attempt = await handler.receive_photo(
+                student_telegram_id=message.from_user.id,
+                file_id=message.photo[-1].file_id,
+                mime_type="image/jpeg",
+            )
+        except AttemptNotFound:
+            await message.answer("I could not find a delivered assignment for you.")
+            return
+        await message.answer(
+            f"Page {attempt.media_count} received. Send more pages, or use /submit when finished."
+        )
+
+    @router.message(F.document)
+    async def receive_document(message: Message) -> None:
+        if message.from_user is None or message.document is None:
+            return
+        if message.document.mime_type != "application/pdf":
+            await message.answer("Please send photos or a PDF only.")
+            return
+        try:
+            await handler.receive_pdf(
+                student_telegram_id=message.from_user.id,
+                file_id=message.document.file_id,
+                mime_type="application/pdf",
+            )
+        except AttemptNotFound:
+            await message.answer("I could not find a delivered assignment for you.")
+            return
+        await message.answer("PDF received. Use /submit when you are ready for it to be checked.")
+
+    @router.message(Command("submit"))
+    async def submit(message: Message) -> None:
+        if message.from_user is None:
+            return
+        try:
+            attempt = await handler.submit(student_telegram_id=message.from_user.id)
+        except AttemptNotFound:
+            await message.answer("There is no saved submission to send.")
+            return
+        await message.answer(
+            f"Submission {attempt.id} received. I’ll read it locally, then your tutor will review it."
+        )
+
+    return router
