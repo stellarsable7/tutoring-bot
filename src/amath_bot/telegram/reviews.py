@@ -225,6 +225,9 @@ class ReviewHandler:
     def _is_tutor(self, message: TutorMessage | Message | CallbackQuery) -> bool:
         return message.from_user is not None and message.from_user.id == self._tutor_telegram_id
 
+    def is_tutor(self, telegram_id: int) -> bool:
+        return telegram_id == self._tutor_telegram_id
+
     @staticmethod
     def _confidence(decisions: tuple[dict[str, Any], ...]) -> dict[str, float]:
         values = [
@@ -254,6 +257,18 @@ def create_review_router(handler: ReviewHandler) -> Router:
         if result.transcription:
             transcription = "\n".join(result.transcription)
             await message.answer(f"OCR transcription:\n{transcription}"[:4000])
+        if result.decisions:
+            breakdown = []
+            for decision in result.decisions:
+                part = str(decision.get("part", "unlabelled part"))
+                awarded = decision.get("marks_awarded", 0)
+                maximum = decision.get("maximum", "?")
+                evidence = str(decision.get("scheme_evidence", "No scheme evidence supplied"))
+                reason = str(decision.get("reason", "No reason supplied"))
+                breakdown.append(
+                    f"{part}: {awarded}/{maximum}\nScheme: {evidence}\nReason: {reason}"
+                )
+            await message.answer(("Marking breakdown:\n\n" + "\n\n".join(breakdown))[:4000])
         reasons = ", ".join(result.review_reasons) or "unspecified"
         text = (
             f"Proposed mark: {result.proposed_total}/{result.maximum}\n"
@@ -270,10 +285,19 @@ def create_review_router(handler: ReviewHandler) -> Router:
                         text="Request clearer upload",
                         callback_data=f"review:resubmit:{result.callback_token}",
                     ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Edit mark & feedback",
+                        callback_data="review:edit",
+                    ),
                 ]
             ]
         )
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(
+            text + "\nTo edit directly: /mark SCORE feedback",
+            reply_markup=keyboard,
+        )
 
     @router.message(Command("mark"))
     async def specify_mark(message: Message) -> None:
@@ -302,6 +326,18 @@ def create_review_router(handler: ReviewHandler) -> Router:
             await callback.answer(str(error), show_alert=True)
             return
         await callback.answer(reply.text, show_alert=True)
+
+    @router.callback_query(F.data == "review:edit")
+    async def edit_instructions(callback: CallbackQuery) -> None:
+        if not handler.is_tutor(callback.from_user.id):
+            await callback.answer("Tutor access required.", show_alert=True)
+            return
+        if callback.message is not None:
+            await callback.message.answer(
+                "Send your corrected result as:\n/mark SCORE feedback\n\n"
+                "Example: /mark 6 Correct method, but one algebra error."
+            )
+        await callback.answer()
 
     @router.callback_query(F.data.startswith("review:resubmit:"))
     async def resubmit(callback: CallbackQuery) -> None:

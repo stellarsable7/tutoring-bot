@@ -22,6 +22,7 @@ class ProposedDecision(BaseModel):
     part: str
     marks_awarded: int = Field(ge=0)
     maximum: int = Field(ge=1)
+    scheme_evidence: str = Field(min_length=1)
     reason: str
     student_lines: tuple[str, ...]
     provider_confidence: float = Field(ge=0, le=1)
@@ -86,15 +87,19 @@ class OllamaVisionOCR:
         maximum: int,
     ) -> ProposedGrade:
         prompt = (
-            "You are proposing a Singapore O-Level Additional Mathematics mark for tutor review. "
-            "The attached image(s) are the published worked solution and annotated mark scheme. "
-            f"The question is worth exactly {maximum} marks. Compare only the student's OCR text "
-            "below with the published scheme. Award method/follow-through marks where the scheme "
-            "supports them. Never invent a marking step. Feedback must diagnose the submitted "
-            "method without revealing a corrected answer or model solution. Return JSON with total, "
-            "decisions, feedback, and unclear. Each decision must contain part, marks_awarded, "
-            "maximum, reason, student_lines, and provider_confidence. If the scheme or OCR is "
-            "ambiguous, list the exact issue in unclear.\n\nStudent OCR:\n"
+            "You are a mark-scheme applier, not a maths solver. The attached image(s) are the only "
+            "authoritative published worked solution and annotated marking scheme. Do not derive an "
+            "answer, invent an alternative scheme, or use your own solution. "
+            f"The question is worth exactly {maximum} marks. Compare the student's OCR text only "
+            "against explicit visible steps and mark annotations in the images. Every awarded mark "
+            "must quote or precisely identify its visible published scheme step in scheme_evidence "
+            "and cite the matching student_lines. If a scheme step is unreadable or absent, award "
+            "zero for it and add the exact issue to unclear for the tutor. Method and follow-through "
+            "marks may be awarded only when explicitly supported by the published scheme. Feedback "
+            "must diagnose the submitted work without giving a corrected answer or model solution. "
+            "Return JSON with total, decisions, feedback, and unclear. Each decision must contain "
+            "part, marks_awarded, maximum, scheme_evidence, reason, student_lines, and a numeric "
+            "provider_confidence from 0 to 1.\n\nStudent OCR:\n"
             + "\n".join(f"{index}. {line}" for index, line in enumerate(transcription, 1))
         )
         payload: dict[str, Any] = {
@@ -124,4 +129,6 @@ class OllamaVisionOCR:
             raise MarkingPipelineError("provisional grade exceeds the published maximum")
         if any(item.marks_awarded > item.maximum for item in proposed.decisions):
             raise MarkingPipelineError("provisional decision exceeds its maximum")
+        if any(item.marks_awarded and not item.student_lines for item in proposed.decisions):
+            raise MarkingPipelineError("awarded marks lack student evidence")
         return proposed.model_copy(update={"total": calculated_total})
