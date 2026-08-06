@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from amath_bot.assignments.models import Assignment
 from amath_bot.assignments.tables import AssignmentRow, ScheduleRow
+from amath_bot.assignments.weekly import PaperQuestion, six_day_plan
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.people.tables import StudentRow
 
@@ -86,6 +87,63 @@ class AssignmentService:
                     )
                 )
             )
+            if len(schedule.weekdays) == 6:
+                paper_groups: dict[tuple[str, int, str], list[SourceQuestionRow]] = {}
+                for question in questions:
+                    paper_groups.setdefault(
+                        (question.school, question.year, question.paper), []
+                    ).append(question)
+                current = next(
+                    (
+                        (key, items)
+                        for key, items in sorted(paper_groups.items())
+                        if not {item.id for item in items}.issubset(prior_question_ids)
+                    ),
+                    None,
+                )
+                if current is None:
+                    continue
+                paper_key, paper_questions = current
+                paper_ids = {item.id for item in paper_questions}
+                prior_dates = set(
+                    await self._session.scalars(
+                        select(AssignmentRow.scheduled_date).where(
+                            AssignmentRow.student_id == student.id,
+                            AssignmentRow.source_question_id.in_(paper_ids),
+                        )
+                    )
+                )
+                if local_now.date() in prior_dates:
+                    continue
+                day_index = len(prior_dates)
+                if day_index >= 6:
+                    continue
+                plan = six_day_plan(
+                    [
+                        PaperQuestion(id=item.id, number=item.question_number, marks=item.marks)
+                        for item in paper_questions
+                    ],
+                    seed="|".join(map(str, paper_key)),
+                )
+                daily_ids = plan[day_index]
+                by_id = {item.id: item for item in paper_questions}
+                for sequence, question_id in enumerate(daily_ids, start=1):
+                    row = AssignmentRow(
+                        student_id=student.id,
+                        source_question_id=question_id,
+                        scheduled_date=local_now.date(),
+                        sequence_number=sequence,
+                        status="pending",
+                        selection_reason=(
+                            f"weekly paper day {day_index + 1}/6: "
+                            f"{paper_key[0]} {paper_key[1]} Paper {paper_key[2]}"
+                        ),
+                    )
+                    self._session.add(row)
+                    await self._session.flush()
+                    prior_question_ids.add(by_id[question_id].id)
+                    created.append(Assignment.model_validate(row, from_attributes=True))
+                continue
             for sequence in range(1, schedule.count + 1):
                 exists = await self._session.scalar(
                     select(AssignmentRow.id).where(
