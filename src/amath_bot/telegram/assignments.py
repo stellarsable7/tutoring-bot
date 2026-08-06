@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Protocol
 
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import FSInputFile
 from pydantic import BaseModel, ConfigDict, HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ class AssignmentDelivery(BaseModel):
     assignment_id: int
     student_telegram_id: int
     source_url: HttpUrl
+    asset_path: str | None = None
     provider: str
     school: str
     year: int
@@ -47,6 +49,10 @@ class AssignmentRenderer:
 
 class TelegramSender(Protocol):
     async def send_message(self, chat_id: int, text: str) -> object: ...
+
+    async def send_document(
+        self, chat_id: int, document: FSInputFile, *, caption: str
+    ) -> object: ...
 
 
 class AssignmentDeliveryService:
@@ -80,6 +86,7 @@ class AssignmentDeliveryService:
                 assignment_id=assignment.id,
                 student_telegram_id=student.telegram_id,
                 source_url=question.source_url,
+                asset_path=question.asset_path,
                 provider=question.provider,
                 school=question.school,
                 year=question.year,
@@ -90,7 +97,14 @@ class AssignmentDeliveryService:
             )
             rendered = await self._renderer.render(payload)
             try:
-                await self._sender.send_message(rendered.chat_id, rendered.text)
+                if payload.asset_path:
+                    await self._sender.send_document(
+                        rendered.chat_id,
+                        FSInputFile(payload.asset_path),
+                        caption=rendered.text.replace(f"\n\n{payload.source_url}", ""),
+                    )
+                else:
+                    await self._sender.send_message(rendered.chat_id, rendered.text)
             except (TelegramAPIError, OSError):
                 assignment.status = "pending"
                 await self._session.commit()

@@ -13,6 +13,7 @@ class SourceQuestion(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     source_url: HttpUrl
+    asset_path: str | None = None
     solution_url: HttpUrl | None
     provider: str
     school: str

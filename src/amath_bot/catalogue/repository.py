@@ -20,6 +20,7 @@ def _stored(row: SourceQuestionRow) -> StoredQuestion:
         {
             "id": row.id,
             "source_url": row.source_url,
+            "asset_path": row.asset_path,
             "solution_url": row.solution_url,
             "provider": row.provider,
             "school": row.school,
@@ -45,6 +46,7 @@ class CatalogueRepository:
             raise IneligibleSourceQuestion("; ".join(errors))
         row = SourceQuestionRow(
             source_url=str(item.source_url),
+            asset_path=item.asset_path,
             solution_url=str(item.solution_url) if item.solution_url else None,
             provider=item.provider,
             school=item.school,
