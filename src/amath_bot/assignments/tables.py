@@ -12,6 +12,7 @@ class ScheduleRow(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), primary_key=True)
     weekdays: Mapped[list[int]] = mapped_column(JSON)
     hour: Mapped[int] = mapped_column(Integer)
+    minute: Mapped[int] = mapped_column(Integer, default=0)
     count: Mapped[int] = mapped_column(Integer, default=1)
     timezone: Mapped[str] = mapped_column(String(80), default="Asia/Singapore")
 
@@ -35,4 +36,3 @@ class AssignmentRow(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     delivery_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     selection_reason: Mapped[str] = mapped_column(String(500))
-

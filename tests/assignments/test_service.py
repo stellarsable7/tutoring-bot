@@ -65,6 +65,17 @@ async def test_due_schedule_creates_one_assignment_by_default(session: AsyncSess
     assert created[0].selection_reason == "scheduled adaptive selection"
 
 
+async def test_schedule_can_run_at_half_past_the_hour(session: AsyncSession) -> None:
+    student = await enrolled_student(session)
+    service = AssignmentService(session)
+    await service.set_schedule(student.id, weekdays={2}, hour=18, minute=30)
+
+    assert await service.create_due(now_sg="2026-08-05T18:00:00+08:00") == ()
+    created = await service.create_due(now_sg="2026-08-05T18:30:00+08:00")
+
+    assert len(created) == 1
+
+
 async def test_repeated_tick_is_idempotent(session: AsyncSession) -> None:
     student = await enrolled_student(session)
     service = AssignmentService(session)

@@ -49,7 +49,7 @@ class TutorHandler:
             "Tutor commands:\n"
             "/invite — create a student invite\n"
             "/students — list students\n"
-            "/schedule NAME weekdays HOUR [COUNT] — set delivery\n"
+            "/schedule NAME weekdays HH:MM [COUNT] — set delivery\n"
             "/assign NAME OBJECTIVE — queue a question\n"
             "/pause NAME — pause delivery\n"
             "/resume NAME — resume delivery\n"

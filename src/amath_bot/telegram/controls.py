@@ -81,15 +81,17 @@ class DatabaseTutorControls:
 
     async def _schedule(self, args: tuple[str, ...]) -> str:
         if len(args) < 3:
-            raise ValueError("usage: /schedule NAME weekdays|0,1,2,3,4 HOUR [COUNT]")
+            raise ValueError("usage: /schedule NAME weekdays|0,1,2,3,4 HH:MM [COUNT]")
         student = await self._student(args[0])
         weekdays = {0, 1, 2, 3, 4} if args[1] == "weekdays" else {int(v) for v in args[1].split(",")}
-        hour = int(args[2])
+        time_parts = args[2].split(":", maxsplit=1)
+        hour = int(time_parts[0])
+        minute = int(time_parts[1]) if len(time_parts) == 2 else 0
         count = int(args[3]) if len(args) > 3 else 1
         await self._assignments.set_schedule(
-            student.id, weekdays=weekdays, hour=hour, count=count
+            student.id, weekdays=weekdays, hour=hour, minute=minute, count=count
         )
-        return f"Schedule saved for {student.display_name}."
+        return f"Schedule saved for {student.display_name} at {hour:02d}:{minute:02d}."
 
     async def _assign(self, args: tuple[str, ...]) -> str:
         if len(args) != 2:

@@ -78,7 +78,7 @@ single-use `/start` invite and must consent before an account is created.
 - `/help` lists the tutor commands and their argument formats.
 - `/invite` creates a single-use student enrolment link.
 - `/students` lists enrolled students.
-- `/schedule NAME weekdays HOUR [COUNT]` configures delivery.
+- `/schedule NAME weekdays HH:MM [COUNT]` configures delivery (for example, `18:30`).
 - `/assign NAME OBJECTIVE` explicitly assigns an eligible catalogue question.
 - `/pause NAME` pauses delivery; `/resume NAME` resumes it.
 - `/remove "NAME" CONFIRM` permanently removes a student and their associated bot records.

@@ -20,6 +20,7 @@ class AssignmentService:
         *,
         weekdays: set[int],
         hour: int,
+        minute: int = 0,
         count: int = 1,
         timezone: str = "Asia/Singapore",
     ) -> None:
@@ -27,16 +28,21 @@ class AssignmentService:
             raise ValueError("weekdays must contain values from 0 to 6")
         if hour not in range(24):
             raise ValueError("hour must be from 0 to 23")
+        if minute not in range(60):
+            raise ValueError("minute must be from 0 to 59")
         if count < 1:
             raise ValueError("count must be positive")
         ZoneInfo(timezone)
 
         row = await self._session.get(ScheduleRow, student_id)
         if row is None:
-            row = ScheduleRow(student_id=student_id, weekdays=sorted(weekdays), hour=hour)
+            row = ScheduleRow(
+                student_id=student_id, weekdays=sorted(weekdays), hour=hour, minute=minute
+            )
             self._session.add(row)
         row.weekdays = sorted(weekdays)
         row.hour = hour
+        row.minute = minute
         row.count = count
         row.timezone = timezone
         await self._session.commit()
@@ -55,7 +61,11 @@ class AssignmentService:
         created: list[Assignment] = []
         for schedule, student in schedules:
             local_now = now.astimezone(ZoneInfo(schedule.timezone))
-            if local_now.weekday() not in schedule.weekdays or local_now.hour != schedule.hour:
+            if (
+                local_now.weekday() not in schedule.weekdays
+                or local_now.hour != schedule.hour
+                or local_now.minute != schedule.minute
+            ):
                 continue
             questions = tuple(
                 await self._session.scalars(

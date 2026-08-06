@@ -28,6 +28,7 @@ class FakeAssignments:
         *,
         weekdays: set[int],
         hour: int,
+        minute: int = 0,
         count: int = 1,
         timezone: str = "Asia/Singapore",
     ) -> None:
