@@ -145,13 +145,31 @@ def create_tutor_router(handler: TutorHandler) -> Router:
                         return
                     marker = await bot.send_message(target_chat_id, "Clearing recent bot chat…")
                     latest_message_id = marker.message_id
+                batches_attempted = 0
                 for message_ids in deletion_batches(latest_message_id):
+                    batches_attempted += 1
                     try:
                         await bot.delete_messages(target_chat_id, message_ids)
                     except TelegramAPIError:
                         # A batch can contain messages outside Telegram's 48-hour window.
-                        # Newer batches have already been attempted, so stop at this boundary.
+                        # Retry newest-first so one old/undeletable ID cannot preserve
+                        # otherwise deletable recent messages in the same batch.
+                        consecutive_failures = 0
+                        for message_id in message_ids:
+                            try:
+                                await bot.delete_message(target_chat_id, message_id)
+                            except TelegramAPIError:
+                                consecutive_failures += 1
+                                if consecutive_failures >= 10:
+                                    break
+                            else:
+                                consecutive_failures = 0
                         break
+                if command_name == "clearstudent":
+                    await message.answer(
+                        f"Clear attempted for {display_name} "
+                        f"({batches_attempted} message batch(es))."
+                    )
                 return
             method = getattr(handler, command_name)
             reply = (
