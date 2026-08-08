@@ -1,6 +1,11 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from amath_bot.scheduler import MARKING_INTERVAL_SECONDS, add_marking_job
+from amath_bot.scheduler import (
+    MARKING_INTERVAL_SECONDS,
+    DailyAssignmentJob,
+    add_marking_job,
+    create_scheduler,
+)
 
 
 async def _mark_pending() -> None:
@@ -38,3 +43,25 @@ def test_add_marking_job_requests_replacement() -> None:
     assert scheduler.options is not None
     assert scheduler.options["id"] == "openrouter-marking"
     assert scheduler.options["replace_existing"] is True
+
+
+def test_create_scheduler_can_register_a_tracked_daily_callback() -> None:
+    class Assignments:
+        async def create_due(self, *, now_sg: object) -> object:
+            return object()
+
+    class Delivery:
+        async def deliver_pending(self) -> int:
+            return 0
+
+    async def tracked_daily() -> object:
+        return object()
+
+    scheduler = create_scheduler(
+        DailyAssignmentJob(Assignments(), Delivery()),  # type: ignore[arg-type]
+        daily_callback=tracked_daily,
+    )
+
+    job = scheduler.get_job("daily-assignment-delivery")
+    assert job is not None
+    assert job.func is tracked_daily

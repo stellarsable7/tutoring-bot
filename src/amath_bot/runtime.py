@@ -59,6 +59,52 @@ class SessionCleanupMiddleware(BaseMiddleware):
             await self._sessions.remove()
 
 
+class _TrackedCallbacks:
+    def __init__(self) -> None:
+        self._tasks: set[asyncio.Task[Any]] = set()
+
+    def wrap(self, callback: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+        async def tracked() -> Any:
+            task = asyncio.current_task()
+            if task is None:
+                return await callback()
+            self._tasks.add(task)
+            try:
+                return await callback()
+            finally:
+                self._tasks.discard(task)
+
+        return tracked
+
+    async def wait(self) -> None:
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+
+async def _shutdown_scheduler(
+    scheduler: AsyncIOScheduler,
+    callbacks: _TrackedCallbacks,
+    *,
+    active_exception: BaseException | None,
+) -> None:
+    shutdown_error: Exception | None = None
+    if scheduler.running:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception as error:  # noqa: BLE001 - callbacks still must unwind
+            shutdown_error = error
+    await callbacks.wait()
+
+    if shutdown_error is None:
+        return
+    if active_exception is None:
+        raise shutdown_error
+    logger.error(
+        "scheduler shutdown failed while handling another exception",
+        exc_info=(type(shutdown_error), shutdown_error, shutdown_error.__traceback__),
+    )
+
+
 async def _cleanup_runtime(
     scheduler: AsyncIOScheduler | None,
     http_client: httpx.AsyncClient | None,
@@ -134,6 +180,7 @@ async def run_polling(settings: Settings) -> None:
                 startup_session.add(TutorRow(telegram_id=settings.tutor_telegram_id))
                 await startup_session.commit()
         async with factory() as scheduler_session:
+            callbacks = _TrackedCallbacks()
             bot_session = cast(AsyncSession, scoped)
             people = PeopleService(bot_session)
             assignments = AssignmentService(bot_session)
@@ -186,7 +233,11 @@ async def run_polling(settings: Settings) -> None:
                 AssignmentService(scheduler_session),
                 AssignmentDeliveryService(scheduler_session, bot),
             )
-            scheduler = create_scheduler(scheduler_job, timezone=settings.timezone)
+            scheduler = create_scheduler(
+                scheduler_job,
+                timezone=settings.timezone,
+                daily_callback=callbacks.wrap(scheduler_job.run),
+            )
 
             async def mark_pending() -> None:
                 async with factory() as marking_session:
@@ -207,10 +258,20 @@ async def run_polling(settings: Settings) -> None:
                             f"{processed} submission(s) are ready. Use /review to inspect them.",
                         )
 
-            add_marking_job(scheduler, mark_pending)
-            scheduler.start()
-            logger.info("starting Telegram polling")
-            await dispatcher.start_polling(bot)
+            try:
+                add_marking_job(scheduler, callbacks.wrap(mark_pending))
+                scheduler.start()
+                logger.info("starting Telegram polling")
+                await dispatcher.start_polling(bot)
+            finally:
+                active_exception = sys.exception()
+                scheduler_to_shutdown = scheduler
+                scheduler = None
+                await _shutdown_scheduler(
+                    scheduler_to_shutdown,
+                    callbacks,
+                    active_exception=active_exception,
+                )
     finally:
         await _cleanup_runtime(
             scheduler,

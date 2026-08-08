@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -101,6 +102,32 @@ async def test_cleanup_does_not_mask_active_polling_exception() -> None:
     assert events == ["scheduler", "client", "bot", "engine"]
 
 
+async def test_tracked_callbacks_wait_until_an_in_flight_callback_unwinds() -> None:
+    tracker = runtime._TrackedCallbacks()  # type: ignore[attr-defined]
+    started = asyncio.Event()
+    release = asyncio.Event()
+    events: list[str] = []
+
+    async def callback() -> None:
+        started.set()
+        try:
+            await release.wait()
+        finally:
+            events.append("unwound")
+
+    task = asyncio.create_task(tracker.wrap(callback)())
+    await started.wait()
+    waiter = asyncio.create_task(tracker.wait())
+    await asyncio.sleep(0)
+    assert waiter.done() is False
+
+    release.set()
+    await waiter
+    await task
+
+    assert events == ["unwound"]
+
+
 async def test_scoped_session_is_removed_after_handler_failure() -> None:
     sessions = FakeSessions()
     middleware = SessionCleanupMiddleware(sessions)  # type: ignore[arg-type]
@@ -189,6 +216,8 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     events: list[str] = []
     sessions: list[object] = []
     callback = None
+    marking_started = asyncio.Event()
+    daily_started = asyncio.Event()
     provider_arguments: tuple[object, str, str] | None = None
     provider_created: object | None = None
     pipeline_arguments: tuple[object, object, object] | None = None
@@ -220,13 +249,17 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     class SessionContext:
         def __init__(self) -> None:
             self.session = FakeSession()
+            self.ordinal = len(sessions)
             sessions.append(self.session)
 
         async def __aenter__(self) -> object:
             return self.session
 
         async def __aexit__(self, *args: object) -> None:
-            return None
+            if self.ordinal == 1:
+                events.append("scheduler-session-exited")
+            elif self.ordinal == 2:
+                events.append("marking-session-exited")
 
     class FakeFactory:
         def __call__(self) -> SessionContext:
@@ -257,19 +290,28 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
 
         async def start_polling(self, bot: object) -> None:
             assert callback is not None
-            await callback()
+            scheduler.callback_task = asyncio.create_task(callback())
+            await marking_started.wait()
+            await daily_started.wait()
             raise PollingStopped("done")
 
     class FakeScheduler:
         running = True
+        callback_task: asyncio.Task[object] | None = None
+        daily_callback: object = None
+        daily_task: asyncio.Task[object] | None = None
 
         def start(self) -> None:
-            return None
+            assert callable(self.daily_callback)
+            self.daily_task = asyncio.create_task(self.daily_callback())
 
         def shutdown(self, *, wait: bool) -> None:
             assert wait is False
             events.append("scheduler-stopped")
-            raise RuntimeError("scheduler cleanup failed")
+            assert self.callback_task is not None
+            self.callback_task.cancel()
+            assert self.daily_task is not None
+            self.daily_task.cancel()
 
     def make_provider(client: object, *, api_key: str, base_url: str) -> object:
         nonlocal provider_arguments, provider_created
@@ -287,6 +329,11 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
             assert session is sessions[-1]
 
         async def run_pending(self) -> int:
+            marking_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("callback-unwound")
             return 0
 
     def register_marking_job(scheduler: object, registered: object) -> None:
@@ -302,11 +349,25 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     monkeypatch.setattr(runtime, "async_scoped_session", lambda *args, **kwargs: object())
     monkeypatch.setattr(runtime, "create_bot", lambda token: bot)
     monkeypatch.setattr(runtime, "create_dispatcher", lambda *args, **kwargs: FakeDispatcher())
-    monkeypatch.setattr(runtime, "create_scheduler", lambda *args, **kwargs: scheduler)
+    def make_scheduler(*args: object, **kwargs: object) -> FakeScheduler:
+        assert kwargs["daily_callback"] is not None
+        scheduler.daily_callback = kwargs["daily_callback"]
+        return scheduler
+
+    monkeypatch.setattr(runtime, "create_scheduler", make_scheduler)
     monkeypatch.setattr(runtime, "add_marking_job", register_marking_job)
     monkeypatch.setattr(runtime, "OpenRouterVisionOCR", make_provider)
     monkeypatch.setattr(runtime, "LocalVisionPipeline", make_pipeline)
     monkeypatch.setattr(runtime, "MarkAttemptJob", FakeMarkAttemptJob)
+    async def daily_run() -> object:
+        daily_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            events.append("daily-callback-unwound")
+        return object()
+
+    monkeypatch.setattr(runtime, "DailyAssignmentJob", lambda *args, **kwargs: SimpleNamespace(run=daily_run))
     for name in (
         "PeopleService",
         "AssignmentService",
@@ -317,7 +378,6 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
         "TelegramReviewNotifier",
         "SubmissionHandler",
         "SubmissionService",
-        "DailyAssignmentJob",
         "AssignmentDeliveryService",
     ):
         monkeypatch.setattr(runtime, name, lambda *args, **kwargs: object())
@@ -340,4 +400,13 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     assert base_url == "https://router.test/v1"
     assert pipeline_arguments == (sessions[2], bot, provider_created)
     assert len(sessions) == 3
-    assert events == ["scheduler-stopped", "client-closed", "bot-closed", "engine-disposed"]
+    assert events[0] == "scheduler-stopped"
+    assert events.index("callback-unwound") < events.index("scheduler-session-exited")
+    assert events.index("daily-callback-unwound") < events.index("scheduler-session-exited")
+    assert events.index("marking-session-exited") < events.index("scheduler-session-exited")
+    assert events[-4:] == [
+        "scheduler-session-exited",
+        "client-closed",
+        "bot-closed",
+        "engine-disposed",
+    ]

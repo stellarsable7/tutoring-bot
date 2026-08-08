@@ -25,10 +25,15 @@ class DailyAssignmentJob:
         return await self._delivery.deliver_pending()
 
 
-def create_scheduler(job: DailyAssignmentJob, *, timezone: str = "Asia/Singapore") -> AsyncIOScheduler:
+def create_scheduler(
+    job: DailyAssignmentJob,
+    *,
+    timezone: str = "Asia/Singapore",
+    daily_callback: Callable[[], Awaitable[object]] | None = None,
+) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=timezone)
     scheduler.add_job(
-        job.run,
+        daily_callback or job.run,
         trigger="cron",
         minute="*",
         id="daily-assignment-delivery",
