@@ -31,8 +31,9 @@ Wave 3 — independent integration surfaces
 └── Agent G → Task 7: deployment configuration and operator documentation
           │
           ▼ orchestrator review + static configuration checks
-Wave 4 — integrated gate
-└── Agent H → Task 8: migration round-trip and full verification
+Wave 4 — orchestrator-owned visible E2E and release gate
+└── Root orchestrator inline → Task 8: live provider, PostgreSQL retry, Telegram journey,
+                                and full verification
 ```
 
 Do not run Wave 2 until every Wave 1 interface is merged. Do not run Wave 3 until both Wave 2
@@ -47,8 +48,34 @@ before dispatching the next wave.
   parallel. Both consume Wave 1 contracts but do not modify each other's files.
 - **Wave 3 — Integration:** wires the finished components into polling while deployment/docs are
   updated independently. Ollama is removed only after the replacement is operational.
-- **Wave 4 — Release gate:** validates schema upgrades, all focused behavior, the complete suite,
-  static analysis, dry-run startup, and absence of stale Ollama claims.
+- **Wave 4 — Visible E2E and release gate:** is performed inline by the root orchestrator, never
+  delegated. It validates a live free-routed vision request, PostgreSQL retry persistence, and the
+  Telegram submission-to-review journey while the user can observe results and discuss failures.
+  It then runs the complete suite, static analysis, dry-run startup, and stale-Ollama scan.
+
+## E2E Ownership and Visibility
+
+Only tests that cross meaningful production boundaries are E2E:
+
+1. **Live OpenRouter contract:** real HTTPS, bearer authentication, `openrouter/free`, image input,
+   provider capability filtering, strict structured output, and local Pydantic validation.
+2. **PostgreSQL retry lifecycle:** real Alembic schema, PostgreSQL timestamp/index semantics,
+   durable `queued → processing → queued` transitions, and eligibility at persisted retry times.
+3. **Telegram marking journey:** real Telegram upload/download, PostgreSQL queue, live OpenRouter
+   OCR and grading, and the final tutor-review notification and `/review` surface.
+
+These sections must be implemented and run inline by the root orchestrator. They must not be
+assigned to a subagent, because the user needs a continuous conversation with the process. Before
+each E2E checkpoint, the orchestrator reports the boundary being exercised, exact command or user
+action, expected observable result, and any credential/external-service prerequisite. During a
+long-running check it posts a concise update at least once per minute. Afterward it reports elapsed
+time, selected OpenRouter model when available, database status transitions, retry metadata, and a
+sanitized failure summary. It never prints API keys, Telegram tokens, student images, or OCR text.
+
+After each E2E checkpoint, the orchestrator pauses for the user to confirm what worked or describe
+what did not before continuing. Deterministic tests for Pydantic schemas, retry-delay arithmetic,
+HTTP status classification, settings parsing, and scheduler registration remain delegated because
+external services would make those checks slower and less reproducible without adding coverage.
 
 ## Global Constraints
 
@@ -490,8 +517,11 @@ Use this response format:
 ```
 
 Parse `choices[0].message.content` with `schema.model_validate_json(content)`. Reject refusals and
-non-string content. Map HTTP 429/5xx, transport errors, malformed envelopes, malformed JSON, and
-schema violations to a safe stage-specific `MarkingPipelineError`.
+non-string content. When the response contains a nonempty top-level `model` string, log
+`"OpenRouter completed <stage> via <model>"` at INFO; this is safe operational metadata and gives
+the live E2E check visibility into the free route selected. Map HTTP 429/5xx, transport errors,
+malformed envelopes, malformed JSON, and schema violations to a safe stage-specific
+`MarkingPipelineError`.
 
 - [ ] **Step 4: Write and run the grading request test**
 
@@ -547,6 +577,10 @@ raise MarkingConfigurationError(
 Add cases for non-JSON HTTP bodies, missing/empty `choices`, missing `message`, null/non-string
 content, refusal, malformed content JSON, extra fields, and out-of-range confidence. These are
 ordinary retryable `MarkingPipelineError` instances.
+
+Add a `caplog` assertion using a successful response containing
+`"model": "example/free-vision-model"`; assert the selected model is logged but the response
+content and bearer key are not.
 
 - [ ] **Step 7: Run provider tests and static checks**
 
@@ -927,19 +961,33 @@ git add .env.example compose.yaml scripts/configure_env.py tests/test_configure_
 git commit -m "docs: configure OpenRouter free marking"
 ```
 
-### Task 8: Integrated Migration and Release Verification
+### Task 8: Visible E2E and Integrated Release Verification
 
-**Wave:** 4, Agent H
+**Wave:** 4, root orchestrator inline. Do not delegate any step in this task.
 
 **Files:**
+- Create: `tests/e2e/test_openrouter_live.py`
+- Create: `tests/e2e/test_marking_retry_postgres.py`
+- Modify: `pyproject.toml`
 - Modify only files implicated by a failing verification; do not broaden scope.
 
 **Interfaces:**
-- Consumes: all preceding tasks.
-- Produces: verified OpenRouter/free marking, durable retries, clean migration chain, and no stale
-  runtime dependency on Ollama.
+- Consumes: all preceding tasks, `AMATH_OPENROUTER_API_KEY`, a disposable
+  `AMATH_E2E_DATABASE_URL`, and user access to the configured Telegram tutor/student chats.
+- Produces: visible evidence for live OpenRouter routing, PostgreSQL retry durability, the Telegram
+  submission-to-review journey, a clean migration chain, and no stale Ollama dependency.
 
-- [ ] **Step 1: Run focused provider and retry suites**
+- [ ] **Step 1: Announce the inline E2E protocol and run deterministic preflight**
+
+Tell the user that Wave 4 is now running inline, list the three E2E checkpoints, and state that
+outputs will be sanitized. Confirm presence—not value—of both required environment variables:
+
+```bash
+test -n "${AMATH_OPENROUTER_API_KEY:-}" && echo "OpenRouter key: configured"
+test -n "${AMATH_E2E_DATABASE_URL:-}" && echo "E2E database: configured"
+```
+
+Then run:
 
 ```bash
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest \
@@ -948,9 +996,130 @@ UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest \
   tests/test_scheduler.py -q
 ```
 
-Expected: PASS.
+Expected: PASS. Report pass/fail counts before continuing. If a prerequisite or deterministic test
+fails, remain inline, explain the exact blocker, and let the user respond before continuing.
 
-- [ ] **Step 2: Run acceptance marking tests**
+- [ ] **Step 2: Write a live OpenRouter E2E test inline**
+
+Register the marker in `pyproject.toml`:
+
+```toml
+markers = [
+  "e2e: requires explicitly configured external services",
+]
+```
+
+Create `tests/e2e/test_openrouter_live.py` with `pytest.mark.e2e`. Skip the module unless both
+`AMATH_RUN_LIVE_E2E=1` and `AMATH_OPENROUTER_API_KEY` exist, so an ordinary full test run never
+contacts an external provider merely because a developer has a key in their environment. In the
+test:
+
+1. use Pillow to render black text `2x + 3 = 7`, `2x = 4`, and `x = 2` onto a white PNG held in a
+   `BytesIO` buffer;
+2. construct a real `httpx.AsyncClient(timeout=180)` and `OpenRouterVisionOCR`;
+3. call `transcribe()` and assert `lines` is nonempty and `0 <= confidence <= 1`;
+4. render `data/solution_assets/sps-2025-p1-q1-solution.pdf` to PNG with PyMuPDF;
+5. call `propose_grade()` with the returned OCR lines and the published question maximum from
+   `data/catalogue/sps-2025-paper-1.json`; and
+6. assert the response is a `ProposedGrade`, its total equals the sum of decision awards, and its
+   total does not exceed that published maximum.
+
+The test must not print OCR lines, prompts, images, response bodies, or the key. INFO logs may show
+only the selected OpenRouter model and stage.
+
+- [ ] **Step 3: Run the live OpenRouter checkpoint visibly**
+
+Before running, tell the user this makes two real free-tier requests and may expose the synthetic
+image and public solution to the selected free provider. Then run without delegating:
+
+```bash
+AMATH_RUN_LIVE_E2E=1 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest \
+  tests/e2e/test_openrouter_live.py -m e2e -v -s --log-cli-level=INFO
+```
+
+Expected: PASS with safe INFO lines identifying the selected free model for OCR and grading. Report
+elapsed time, selected model(s), and schema-validation outcome. If it fails because no compatible
+free route is available, show only status/category, discuss it with the user, and retry only after
+the user chooses to continue.
+
+- [ ] **Step 4: Write and run the PostgreSQL retry E2E inline**
+
+Create `tests/e2e/test_marking_retry_postgres.py`, marked `e2e` and skipped unless both
+`AMATH_RUN_POSTGRES_E2E=1` and `AMATH_E2E_DATABASE_URL` exist. Point Alembic at that disposable
+database, migrate to head, and use an async SQLAlchemy session against the same URL. Reuse the
+complete tutor/student/question/assignment factory shape from
+`tests/acceptance/test_submission_marking.py`; do not depend on pre-existing rows.
+
+The test must submit one attempt and drive fresh `MarkAttemptJob` instances with an injected clock
+and a recording pipeline through these observable states:
+
+```text
+queued/null retry
+processing
+queued/attempts=1/retry=now+3s
+not selected at now+2s
+selected at now+3s
+queued/attempts=2/retry=now+13s
+successful and flagged/retry=null/error=null
+```
+
+It must query the database through a newly opened session between worker invocations, proving the
+state survives process/session boundaries rather than relying on an identity map. Run:
+
+```bash
+AMATH_DATABASE_URL="$AMATH_E2E_DATABASE_URL" \
+  UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
+AMATH_DATABASE_URL="$AMATH_E2E_DATABASE_URL" \
+  AMATH_RUN_POSTGRES_E2E=1 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest \
+  tests/e2e/test_marking_retry_postgres.py -m e2e -v -s
+AMATH_DATABASE_URL="$AMATH_E2E_DATABASE_URL" \
+  UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic downgrade 0011_solution_assets
+AMATH_DATABASE_URL="$AMATH_E2E_DATABASE_URL" \
+  UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
+```
+
+Expected: all commands exit zero. Report the migration revisions and each sanitized status,
+attempt-count, and retry-time transition. Never run downgrade against the production database.
+Pause for the user's observations before the Telegram checkpoint.
+
+- [ ] **Step 5: Run the Telegram submission-to-review E2E interactively**
+
+Confirm `.env` contains the key without displaying it, then start the real stack inline:
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs --since 2m bot
+```
+
+Tell the user when the bot is ready. Ask the user to use the configured tutor chat to assign a
+catalogue question with a published solution, submit a clearly legible student image, and confirm
+submission. While they interact, poll only sanitized operational state:
+
+```bash
+docker compose exec -T postgres psql -U amath -d amath_bot -c \
+  "SELECT id, status, marking_attempts, marking_retry_at, \
+   marking_last_error IS NOT NULL AS has_error \
+   FROM submission_attempts ORDER BY id DESC LIMIT 1;"
+docker compose logs --since 5m bot | \
+  rg "OpenRouter completed|submission\(s\) are ready|ERROR|WARNING"
+```
+
+Expected journey:
+
+```text
+Telegram upload → draft → queued → processing → flagged
+                                      │
+                                      └→ tutor receives “ready” notification → /review shows result
+```
+
+Report every observed state change and selected model without exposing submission contents. If the
+row retries, report attempt number, next retry time, and sanitized error category, then keep the
+user updated at least once per minute. Ask the user whether the Telegram messages and `/review`
+content are correct before stopping or continuing. Do not run `docker compose down -v`; preserve
+the database volume.
+
+- [ ] **Step 6: Run acceptance marking tests**
 
 ```bash
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest tests/acceptance/test_submission_marking.py -q
@@ -959,20 +1128,7 @@ UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest tests/acceptance/test_submission_
 Expected: PASS with queued submissions still becoming marked or tutor-flagged through the fake
 pipeline.
 
-- [ ] **Step 3: Verify the migration chain on a disposable PostgreSQL database**
-
-With `AMATH_DATABASE_URL` pointed at a disposable database, run:
-
-```bash
-UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
-UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic downgrade 0011_solution_assets
-UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
-```
-
-Expected: all commands exit zero. Inspect `submission_attempts` and confirm the three retry columns,
-named check constraint, and retry-time index exist after the final upgrade.
-
-- [ ] **Step 4: Run the full quality gate**
+- [ ] **Step 7: Run the full quality gate**
 
 ```bash
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run pytest -q
@@ -983,7 +1139,7 @@ AMATH_TELEGRAM_DRY_RUN=true UV_CACHE_DIR=/tmp/amath-uv-cache uv run python -m am
 
 Expected: all commands exit zero; dry-run logs that it is enabled without requiring an API key.
 
-- [ ] **Step 5: Scan for stale implementation and secret risks**
+- [ ] **Step 8: Scan for stale implementation and secret risks**
 
 ```bash
 rg -n "OLLAMA|Ollama|ollama|qwen3-vl|local-vision-marking" \
@@ -996,18 +1152,26 @@ git status --short
 Expected: no stale Ollama runtime references, no committed real-looking OpenRouter secret, no
 whitespace errors, and only intended changes.
 
-- [ ] **Step 6: Commit only verification fixes, if needed**
+- [ ] **Step 9: Commit E2E coverage and scoped verification fixes**
 
-If verification required scoped fixes, first confirm `git diff --name-only` contains only files
-from Tasks 1–7, then stage the tracked fixes and commit them:
+First commit the orchestrator-owned E2E tests:
+
+```bash
+git add pyproject.toml tests/e2e/test_openrouter_live.py tests/e2e/test_marking_retry_postgres.py
+git commit -m "test: cover live OpenRouter marking flow"
+```
+
+If verification also required scoped fixes, confirm `git diff --name-only` contains only files
+from Tasks 1–8, then stage the tracked fixes and commit them:
 
 ```bash
 git add -u
 git commit -m "fix: complete OpenRouter marking verification"
 ```
 
-If no fixes were needed, do not create an empty commit. Record the exact verification output in the
-orchestrator's completion report.
+If no additional fixes were needed, do not create a second empty commit. Record the exact E2E and
+verification evidence in the orchestrator's completion report, including any checkpoint the user
+chose to defer.
 
 ## Orchestrator Review Gates
 
