@@ -178,7 +178,7 @@ async def test_grading_invariants(maximum: int, decisions: list[dict[str, Any]])
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [429, 500, 502, 503])
+@pytest.mark.parametrize("status", [404, 408, 429, 500, 502, 503])
 async def test_retryable_http_statuses_are_ordinary_pipeline_errors(status: int) -> None:
     adapter, client = await _adapter(
         lambda request: httpx.Response(status, text="sentinel-response-secret")

@@ -10,6 +10,7 @@ from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipeli
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 
 OPENROUTER_MODEL = "openrouter/free"
+_CONFIGURATION_ERROR_STATUSES = frozenset({400, 401, 403, 422})
 
 _logger = logging.getLogger(__name__)
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -133,7 +134,7 @@ class OpenRouterVisionOCR:
         except httpx.RequestError as error:
             raise MarkingPipelineError(failure_message) from error
 
-        if 400 <= response.status_code < 500 and response.status_code != 429:
+        if response.status_code in _CONFIGURATION_ERROR_STATUSES:
             raise MarkingConfigurationError(
                 f"OpenRouter rejected provider request ({response.status_code})"
             )
