@@ -121,6 +121,9 @@ class SubmissionService:
         )
         if not count:
             raise EmptyAttempt("at least one image or PDF is required")
+        attempt.marking_attempts = 0
+        attempt.marking_retry_at = None
+        attempt.marking_last_error = None
         attempt.status = "queued"
         attempt.queued_at = datetime.now(UTC)
         await self._session.commit()

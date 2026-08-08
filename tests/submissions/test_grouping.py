@@ -9,6 +9,7 @@ from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.db import Base
 from amath_bot.people.tables import StudentRow, TutorRow
 from amath_bot.submissions.service import EmptyAttempt, MixedMediaTypes, SubmissionService
+from amath_bot.submissions.tables import AttemptRow
 
 
 @pytest_asyncio.fixture
@@ -74,7 +75,35 @@ async def test_multiple_uploads_remain_draft_until_submit(session: AsyncSession)
     assert submitted.status == "queued"
     assert submitted.media_count == 2
     assert [item.telegram_file_id for item in submitted.media] == ["tg-file-1", "tg-file-2"]
+    row = await session.get(AttemptRow, attempt.id)
+    assert row is not None
+    assert row.marking_attempts == 0
+    assert row.marking_retry_at is None
+    assert row.marking_last_error is None
     assert await service.submit(attempt.id) == submitted
+
+
+async def test_resubmitting_queued_attempt_preserves_retry_metadata(
+    session: AsyncSession,
+) -> None:
+    service = SubmissionService(session)
+    assignment = await assignment_id(session)
+    attempt = await service.add_image(assignment, "tg-file-1", mime_type="image/jpeg")
+    await service.submit(attempt.id)
+    retry_at = datetime(2026, 8, 5, 12, 30, tzinfo=UTC)
+    row = await session.get(AttemptRow, attempt.id)
+    assert row is not None
+    row.marking_attempts = 3
+    row.marking_retry_at = retry_at
+    row.marking_last_error = "provider unavailable"
+    await session.commit()
+
+    await service.submit(attempt.id)
+    await session.refresh(row)
+
+    assert row.marking_attempts == 3
+    assert row.marking_retry_at.replace(tzinfo=UTC) == retry_at
+    assert row.marking_last_error == "provider unavailable"
 
 
 async def test_pdf_cannot_be_mixed_with_images(session: AsyncSession) -> None:

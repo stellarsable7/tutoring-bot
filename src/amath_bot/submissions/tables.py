@@ -1,7 +1,16 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from amath_bot.db import Base
@@ -9,12 +18,25 @@ from amath_bot.db import Base
 
 class AttemptRow(Base):
     __tablename__ = "submission_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "marking_attempts >= 0",
+            name="marking_attempts_nonnegative",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id"), index=True)
     status: Mapped[str] = mapped_column(String(40), default="draft", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    marking_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    marking_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    marking_last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     result_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_maximum: Mapped[int | None] = mapped_column(Integer, nullable=True)
     feedback: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
