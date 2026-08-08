@@ -1,7 +1,10 @@
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Protocol
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
+
+MARKING_INTERVAL_SECONDS = 3
 
 
 class DueAssignments(Protocol):
@@ -34,3 +37,17 @@ def create_scheduler(job: DailyAssignmentJob, *, timezone: str = "Asia/Singapore
         replace_existing=True,
     )
     return scheduler
+
+
+def add_marking_job(
+    scheduler: AsyncIOScheduler, callback: Callable[[], Awaitable[None]]
+) -> None:
+    scheduler.add_job(
+        callback,
+        trigger="interval",
+        seconds=MARKING_INTERVAL_SECONDS,
+        id="openrouter-marking",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )

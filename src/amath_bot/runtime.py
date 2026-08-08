@@ -1,11 +1,15 @@
 import asyncio
 import logging
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+import httpx
 from aiogram import BaseMiddleware, Bot
 from aiogram.types import BotCommand, TelegramObject
+from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[import-untyped]
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_scoped_session,
     async_sessionmaker,
@@ -17,9 +21,9 @@ from amath_bot.jobs.mark_attempt import MarkAttemptJob
 from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
-from amath_bot.providers.ollama_vision import OllamaVisionOCR
+from amath_bot.providers.openrouter_vision import OpenRouterVisionOCR
 from amath_bot.reviews.service import ReviewService
-from amath_bot.scheduler import DailyAssignmentJob, create_scheduler
+from amath_bot.scheduler import DailyAssignmentJob, add_marking_job, create_scheduler
 from amath_bot.settings import Settings
 from amath_bot.submissions.service import SubmissionService
 from amath_bot.telegram.assignments import AssignmentDeliveryService
@@ -55,18 +59,73 @@ class SessionCleanupMiddleware(BaseMiddleware):
             await self._sessions.remove()
 
 
+async def _cleanup_runtime(
+    scheduler: AsyncIOScheduler | None,
+    http_client: httpx.AsyncClient | None,
+    bot: Bot | None,
+    engine: AsyncEngine | None,
+    *,
+    active_exception: BaseException | None,
+) -> None:
+    cleanup_errors: list[Exception] = []
+
+    if scheduler is not None and scheduler.running:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception as error:  # noqa: BLE001 - later resources must still be closed
+            cleanup_errors.append(error)
+    if http_client is not None:
+        try:
+            await http_client.aclose()
+        except Exception as error:  # noqa: BLE001 - later resources must still be closed
+            cleanup_errors.append(error)
+    if bot is not None:
+        try:
+            await bot.session.close()
+        except Exception as error:  # noqa: BLE001 - later resources must still be closed
+            cleanup_errors.append(error)
+    if engine is not None:
+        try:
+            await engine.dispose()
+        except Exception as error:  # noqa: BLE001 - report only after all cleanup attempts
+            cleanup_errors.append(error)
+
+    if not cleanup_errors:
+        return
+    if active_exception is None:
+        raise cleanup_errors[0]
+    for cleanup_error in cleanup_errors:
+        logger.error(
+            "runtime resource cleanup failed while handling another exception",
+            exc_info=(type(cleanup_error), cleanup_error, cleanup_error.__traceback__),
+        )
+
+
 async def run_polling(settings: Settings) -> None:
     if settings.telegram_bot_token is None or settings.tutor_telegram_id is None:
         raise ValueError("Telegram token and tutor ID are required")
     tutor_telegram_id = settings.tutor_telegram_id
     if settings.review_callback_secret is None or len(settings.review_callback_secret) < 32:
         raise ValueError("review callback secret must be at least 32 characters")
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    scoped = async_scoped_session(factory, scopefunc=asyncio.current_task)
-    bot: Bot = create_bot(settings.telegram_bot_token)
+    if settings.openrouter_api_key is None or not settings.openrouter_api_key.strip():
+        raise ValueError("AMATH_OPENROUTER_API_KEY is required")
+    openrouter_api_key = settings.openrouter_api_key
+
+    engine = None
+    bot: Bot | None = None
+    http_client: httpx.AsyncClient | None = None
     scheduler = None
     try:
+        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        scoped = async_scoped_session(factory, scopefunc=asyncio.current_task)
+        bot = create_bot(settings.telegram_bot_token)
+        http_client = httpx.AsyncClient(timeout=180)
+        vision = OpenRouterVisionOCR(
+            http_client,
+            api_key=openrouter_api_key,
+            base_url=settings.openrouter_url,
+        )
         identity = await bot.get_me()
         if identity.username is None:
             raise ValueError("Telegram bot must have a username")
@@ -134,10 +193,7 @@ async def run_polling(settings: Settings) -> None:
                     pipeline = LocalVisionPipeline(
                         marking_session,
                         bot,
-                        OllamaVisionOCR(
-                            base_url=settings.ollama_url,
-                            model=settings.ollama_vision_model,
-                        ),
+                        vision,
                     )
                     processed = await MarkAttemptJob(
                         marking_session,
@@ -151,20 +207,15 @@ async def run_polling(settings: Settings) -> None:
                             f"{processed} submission(s) are ready. Use /review to inspect them.",
                         )
 
-            scheduler.add_job(
-                mark_pending,
-                trigger="interval",
-                seconds=settings.marking_interval_seconds,
-                id="local-vision-marking",
-                max_instances=1,
-                coalesce=True,
-                replace_existing=True,
-            )
+            add_marking_job(scheduler, mark_pending)
             scheduler.start()
             logger.info("starting Telegram polling")
             await dispatcher.start_polling(bot)
     finally:
-        if scheduler is not None and scheduler.running:
-            scheduler.shutdown(wait=False)
-        await bot.session.close()
-        await engine.dispose()
+        await _cleanup_runtime(
+            scheduler,
+            http_client,
+            bot,
+            engine,
+            active_exception=sys.exception(),
+        )
