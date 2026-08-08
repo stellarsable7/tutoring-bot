@@ -19,9 +19,9 @@ def retry_delay(failed_attempt: int) -> timedelta:
 
 
 class MarkingPipelineError(RuntimeError):
-    def __init__(self, message: str, *, diagnostic: str = "marking pipeline failed") -> None:
+    def __init__(self, message: str) -> None:
         super().__init__(message)
-        self.diagnostic = diagnostic[:500]
+        self.diagnostic = message[:500]
 
 
 class MarkingConfigurationError(MarkingPipelineError):
@@ -105,10 +105,7 @@ class MarkAttemptJob:
             try:
                 outcome = await self._pipeline.mark(attempt.id)
                 if outcome.total > outcome.maximum:
-                    raise MarkingPipelineError(
-                        "marking total exceeds maximum",
-                        diagnostic="marking total exceeds maximum",
-                    )
+                    raise MarkingPipelineError("marking total exceeds maximum")
             except MarkingConfigurationError as error:
                 await self._persist_failure(
                     attempt, error, retry_at=self._now() + timedelta(hours=1)

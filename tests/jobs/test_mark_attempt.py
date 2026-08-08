@@ -162,9 +162,7 @@ async def test_transient_failures_persist_exact_retry_schedule_across_sessions(
         async with factory() as session:
             processed = await job(
                 session,
-                FailingPipeline(
-                    MarkingPipelineError("provider payload", diagnostic="provider temporarily unavailable")
-                ),
+                FailingPipeline(MarkingPipelineError("provider temporarily unavailable")),
                 current,
             ).run_pending()
             assert processed == 0
@@ -181,7 +179,7 @@ async def test_transient_failures_persist_exact_retry_schedule_across_sessions(
             before = deadline - timedelta(microseconds=1)
             assert await job(
                 session,
-                FailingPipeline(MarkingPipelineError("unused", diagnostic="unused")),
+                FailingPipeline(MarkingPipelineError("unused")),
                 before,
             ).run_pending() == 0
             row = await session.get(AttemptRow, attempt_id)
@@ -200,9 +198,7 @@ async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEn
         await session.commit()
         await job(
             session,
-            FailingPipeline(
-                MarkingConfigurationError("secret response", diagnostic="provider is not configured")
-            ),
+            FailingPipeline(MarkingConfigurationError("provider is not configured")),
             now,
         ).run_pending()
         await session.refresh(attempt)
@@ -212,12 +208,19 @@ async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEn
         assert attempt.marking_last_error == "provider is not configured"
 
 
-def test_pipeline_error_exposes_only_bounded_caller_supplied_diagnostic() -> None:
-    error = MarkingPipelineError("raw provider body", diagnostic="safe:" + "x" * 600)
+def test_pipeline_error_exposes_bounded_caller_supplied_safe_message() -> None:
+    safe_reason = "safe:" + "x" * 600
+    error = MarkingPipelineError(safe_reason)
 
-    assert str(error) == "raw provider body"
-    assert error.diagnostic == ("safe:" + "x" * 600)[:500]
-    assert "raw provider body" not in error.diagnostic
+    assert str(error) == safe_reason
+    assert error.diagnostic == safe_reason[:500]
+
+
+def test_configuration_error_retains_status_bearing_safe_diagnostic() -> None:
+    error = MarkingConfigurationError("OpenRouter API key is not configured")
+
+    assert str(error) == "OpenRouter API key is not configured"
+    assert error.diagnostic == "OpenRouter API key is not configured"
 
 
 @pytest.mark.parametrize(
