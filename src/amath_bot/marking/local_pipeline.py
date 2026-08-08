@@ -28,7 +28,7 @@ class VisionOCR(Protocol):
 
 
 class LocalVisionPipeline:
-    """Local OCR with mandatory tutor review before a mark reaches a student."""
+    """Vision OCR with mandatory tutor review before a mark reaches a student."""
 
     def __init__(self, session: AsyncSession, bot: Bot, ocr: VisionOCR) -> None:
         self._session = session
@@ -96,7 +96,7 @@ class LocalVisionPipeline:
                 },
             )
         )
-        reasons = ["Tutor approval is required for locally generated marks."]
+        reasons = ["Tutor approval is required for AI-generated marks."]
         if unclear or not all(result.complete for result in results):
             description = "; ".join(unclear) or "The model could not read all of the working."
             reasons.append(f"Tutor clarification required: {description}")
