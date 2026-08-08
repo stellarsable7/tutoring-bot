@@ -36,6 +36,9 @@ packages = ["src/amath_bot"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 addopts = ["--import-mode=importlib"]
+markers = [
+  "e2e: requires explicitly configured external services",
+]
 
 [tool.ruff]
 line-length = 100
