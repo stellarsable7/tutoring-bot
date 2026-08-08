@@ -1,0 +1,287 @@
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import NoReturn
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from amath_bot.catalogue.tables import SourceQuestionRow
+from amath_bot.db import Base
+from amath_bot.jobs.mark_attempt import (
+    MarkAttemptJob,
+    MarkingConfigurationError,
+    MarkingOutcome,
+    MarkingPipelineError,
+    retry_delay,
+)
+from amath_bot.submissions.tables import AttemptRow
+
+
+class NullNotifier:
+    async def send_message(self, chat_id: int, text: str) -> object:
+        return object()
+
+
+class NullMedia:
+    async def delete_attempt_media(self, attempt_id: int) -> None:
+        pass
+
+
+class FailingPipeline:
+    def __init__(self, error: MarkingPipelineError) -> None:
+        self.error = error
+
+    async def mark(self, attempt_id: int) -> NoReturn:
+        raise self.error
+
+
+class SuccessfulPipeline:
+    def __init__(self, outcome: MarkingOutcome) -> None:
+        self.outcome = outcome
+
+    async def mark(self, attempt_id: int) -> MarkingOutcome:
+        return self.outcome
+
+
+@pytest_asyncio.fixture
+async def engine() -> AsyncIterator[AsyncEngine]:
+    value = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with value.begin() as connection:
+        assert SourceQuestionRow.__tablename__ == "source_questions"
+        await connection.run_sync(Base.metadata.create_all)
+    yield value
+    await value.dispose()
+
+
+def job(
+    session: AsyncSession,
+    pipeline: FailingPipeline | SuccessfulPipeline,
+    now: datetime,
+) -> MarkAttemptJob:
+    return MarkAttemptJob(
+        session,
+        pipeline=pipeline,
+        notifier=NullNotifier(),
+        media=NullMedia(),
+        now=lambda: now,
+    )
+
+
+def add_attempt(
+    session: AsyncSession,
+    *,
+    status: str = "queued",
+    retry_at: datetime | None = None,
+    attempts: int = 0,
+) -> AttemptRow:
+    row = AttemptRow(
+        assignment_id=1,
+        status=status,
+        marking_retry_at=retry_at,
+        marking_attempts=attempts,
+    )
+    session.add(row)
+    return row
+
+
+@pytest.mark.parametrize(
+    ("failed_attempt", "expected"),
+    [
+        (1, timedelta(seconds=3)),
+        (2, timedelta(seconds=10)),
+        (3, timedelta(seconds=30)),
+        (4, timedelta(seconds=30)),
+        (5, timedelta(seconds=60)),
+        (6, timedelta(seconds=60)),
+        (20, timedelta(seconds=60)),
+    ],
+)
+def test_retry_delay_uses_bounded_schedule(
+    failed_attempt: int, expected: timedelta
+) -> None:
+    assert retry_delay(failed_attempt) == expected
+
+
+def test_retry_delay_rejects_nonpositive_attempt() -> None:
+    with pytest.raises(ValueError, match="failed_attempt must be at least 1"):
+        retry_delay(0)
+
+
+@pytest.mark.asyncio
+async def test_claim_next_selects_only_due_queued_rows_in_id_order(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        null_due = add_attempt(session)
+        past_due = add_attempt(session, retry_at=now - timedelta(microseconds=1))
+        exact_due = add_attempt(session, retry_at=now)
+        future = add_attempt(session, retry_at=now + timedelta(microseconds=1))
+        nonqueued = add_attempt(session, status="processing")
+        await session.commit()
+
+        worker = job(
+            session,
+            SuccessfulPipeline(MarkingOutcome(total=1, maximum=1, feedback=(), review_reasons=())),
+            now,
+        )
+        claimed_ids: list[int] = []
+        while claimed := await worker._claim_next(now):
+            claimed_ids.append(claimed.id)
+            async with factory() as observer_session:
+                observer = await observer_session.get(AttemptRow, claimed.id)
+                assert observer is not None
+                assert observer.status == "processing"
+
+        assert claimed_ids == [null_due.id, past_due.id, exact_due.id]
+        await session.refresh(future)
+        await session.refresh(nonqueued)
+        assert future.status == "queued"
+        assert nonqueued.status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_transient_failures_persist_exact_retry_schedule_across_sessions(
+    engine: AsyncEngine,
+) -> None:
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    current = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    async with factory() as session:
+        attempt = add_attempt(session)
+        await session.commit()
+        attempt_id = attempt.id
+
+    for failed_attempt in range(1, 7):
+        async with factory() as session:
+            processed = await job(
+                session,
+                FailingPipeline(
+                    MarkingPipelineError("provider payload", diagnostic="provider temporarily unavailable")
+                ),
+                current,
+            ).run_pending()
+            assert processed == 0
+            row = await session.get(AttemptRow, attempt_id)
+            assert row is not None
+            deadline = current + retry_delay(failed_attempt)
+            # SQLite returns timezone-naive DateTime values even for timezone=True columns.
+            assert row.marking_retry_at == deadline.replace(tzinfo=None)
+            assert row.status == "queued"
+            assert row.marking_attempts == failed_attempt
+            assert row.marking_last_error == "provider temporarily unavailable"
+
+        async with factory() as session:
+            before = deadline - timedelta(microseconds=1)
+            assert await job(
+                session,
+                FailingPipeline(MarkingPipelineError("unused", diagnostic="unused")),
+                before,
+            ).run_pending() == 0
+            row = await session.get(AttemptRow, attempt_id)
+            assert row is not None
+            assert row.marking_attempts == failed_attempt
+
+        current = deadline
+
+
+@pytest.mark.asyncio
+async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEngine) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session)
+        await session.commit()
+        await job(
+            session,
+            FailingPipeline(
+                MarkingConfigurationError("secret response", diagnostic="provider is not configured")
+            ),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+        # SQLite returns timezone-naive DateTime values even for timezone=True columns.
+        assert attempt.marking_retry_at == (now + timedelta(hours=1)).replace(tzinfo=None)
+        assert attempt.marking_attempts == 1
+        assert attempt.marking_last_error == "provider is not configured"
+
+
+def test_pipeline_error_exposes_only_bounded_caller_supplied_diagnostic() -> None:
+    error = MarkingPipelineError("raw provider body", diagnostic="safe:" + "x" * 600)
+
+    assert str(error) == "raw provider body"
+    assert error.diagnostic == ("safe:" + "x" * 600)[:500]
+    assert "raw provider body" not in error.diagnostic
+
+
+@pytest.mark.parametrize(
+    ("review_reasons", "expected_status"),
+    [((), "marked"), (("ambiguous work",), "flagged")],
+)
+@pytest.mark.asyncio
+async def test_success_clears_retry_metadata_retains_attempt_count_and_outcome(
+    engine: AsyncEngine,
+    review_reasons: tuple[str, ...],
+    expected_status: str,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(
+            session,
+            retry_at=now - timedelta(seconds=1),
+            attempts=2,
+        )
+        attempt.marking_last_error = "old safe error"
+        await session.commit()
+        processed = await job(
+            session,
+            SuccessfulPipeline(
+                MarkingOutcome(
+                    total=4,
+                    maximum=5,
+                    feedback=("Good method",),
+                    review_reasons=review_reasons,
+                )
+            ),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert processed == 1
+        assert attempt.status == expected_status
+        assert attempt.marking_attempts == 2
+        assert attempt.marking_retry_at is None
+        assert attempt.marking_last_error is None
+        assert attempt.result_total == 4
+        assert attempt.result_maximum == 5
+
+
+@pytest.mark.asyncio
+async def test_total_above_maximum_is_persisted_as_retry(engine: AsyncEngine) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session)
+        await session.commit()
+        processed = await job(
+            session,
+            SuccessfulPipeline(
+                MarkingOutcome(total=6, maximum=5, feedback=(), review_reasons=())
+            ),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert processed == 0
+        assert attempt.status == "queued"
+        assert attempt.marking_attempts == 1
+        assert attempt.marking_last_error == "marking total exceeds maximum"
+        # SQLite returns timezone-naive DateTime values even for timezone=True columns.
+        assert attempt.marking_retry_at == (now + timedelta(seconds=3)).replace(tzinfo=None)

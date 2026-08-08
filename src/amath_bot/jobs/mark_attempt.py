@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -10,8 +11,17 @@ from amath_bot.people.tables import StudentRow
 from amath_bot.submissions.tables import AttemptRow
 
 
+def retry_delay(failed_attempt: int) -> timedelta:
+    if failed_attempt < 1:
+        raise ValueError("failed_attempt must be at least 1")
+    seconds = {1: 3, 2: 10, 3: 30, 4: 30}.get(failed_attempt, 60)
+    return timedelta(seconds=seconds)
+
+
 class MarkingPipelineError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, diagnostic: str = "marking pipeline failed") -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic[:500]
 
 
 class MarkingConfigurationError(MarkingPipelineError):
@@ -48,41 +58,73 @@ class MarkAttemptJob:
         pipeline: AttemptPipeline,
         notifier: StudentNotifier,
         media: AttemptMediaLifecycle,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._session = session
         self._pipeline = pipeline
         self._notifier = notifier
         self._media = media
+        self._now = now
+
+    async def _claim_next(self, now: datetime) -> AttemptRow | None:
+        attempt = await self._session.scalar(
+            select(AttemptRow)
+            .where(
+                AttemptRow.status == "queued",
+                (AttemptRow.marking_retry_at.is_(None))
+                | (AttemptRow.marking_retry_at <= now),
+            )
+            .order_by(AttemptRow.id)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        if attempt is None:
+            return None
+        attempt.status = "processing"
+        await self._session.commit()
+        return attempt
+
+    async def _persist_failure(
+        self,
+        attempt: AttemptRow,
+        error: MarkingPipelineError,
+        *,
+        retry_at: datetime | None = None,
+    ) -> None:
+        attempt.status = "queued"
+        attempt.marking_attempts += 1
+        attempt.marking_last_error = error.diagnostic
+        attempt.marking_retry_at = retry_at or (
+            self._now() + retry_delay(attempt.marking_attempts)
+        )
+        await self._session.commit()
 
     async def run_pending(self) -> int:
-        attempts = tuple(
-            await self._session.scalars(
-                select(AttemptRow)
-                .where(AttemptRow.status == "queued")
-                .order_by(AttemptRow.id)
-                .with_for_update(skip_locked=True)
-            )
-        )
         processed = 0
-        for attempt in attempts:
-            attempt.status = "processing"
-            await self._session.commit()
+        while attempt := await self._claim_next(self._now()):
             try:
                 outcome = await self._pipeline.mark(attempt.id)
-            except MarkingPipelineError:
-                attempt.status = "queued"
-                await self._session.commit()
+                if outcome.total > outcome.maximum:
+                    raise MarkingPipelineError(
+                        "marking total exceeds maximum",
+                        diagnostic="marking total exceeds maximum",
+                    )
+            except MarkingConfigurationError as error:
+                await self._persist_failure(
+                    attempt, error, retry_at=self._now() + timedelta(hours=1)
+                )
                 continue
-            if outcome.total > outcome.maximum:
-                attempt.status = "queued"
-                await self._session.commit()
-                raise MarkingPipelineError("marking total exceeds maximum")
-            now = datetime.now(UTC)
+            except MarkingPipelineError as error:
+                await self._persist_failure(attempt, error)
+                continue
+            now = self._now()
             attempt.result_total = outcome.total
             attempt.result_maximum = outcome.maximum
             attempt.feedback = list(outcome.feedback)
             attempt.grade_decisions = list(outcome.decisions)
             attempt.review_reasons = list(outcome.review_reasons)
+            attempt.marking_retry_at = None
+            attempt.marking_last_error = None
             if outcome.review_reasons:
                 attempt.status = "flagged"
                 attempt.media_expires_at = now + timedelta(hours=24)
@@ -106,7 +148,7 @@ class MarkAttemptJob:
         )
         for attempt in attempts:
             await self._media.delete_attempt_media(attempt.id)
-            attempt.media_deleted_at = datetime.now(UTC)
+            attempt.media_deleted_at = self._now()
             await self._session.commit()
 
     async def _notify_students(self) -> None:
@@ -124,5 +166,5 @@ class MarkAttemptJob:
                 await self._notifier.send_message(student.telegram_id, text)
             except OSError:
                 continue
-            attempt.notified_at = datetime.now(UTC)
+            attempt.notified_at = self._now()
             await self._session.commit()
