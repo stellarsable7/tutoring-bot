@@ -14,6 +14,10 @@ class MarkingPipelineError(RuntimeError):
     pass
 
 
+class MarkingConfigurationError(MarkingPipelineError):
+    """A safe operator-actionable provider configuration failure."""
+
+
 class MarkingOutcome(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

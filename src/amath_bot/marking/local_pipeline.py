@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.jobs.mark_attempt import MarkingOutcome, MarkingPipelineError
-from amath_bot.providers.ollama_vision import OCRResult, ProposedGrade
+from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 
 
