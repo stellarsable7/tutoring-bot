@@ -37,6 +37,14 @@ docker compose up --build -d
 docker compose logs -f bot
 ```
 
+Alternatively, create the file with hidden prompts and restrictive permissions; the script
+validates the Telegram token before asking for the OpenRouter key:
+
+```bash
+UV_CACHE_DIR=/tmp/amath-uv-cache uv run python scripts/configure_env.py \
+  --telegram-id YOUR_NUMERIC_TELEGRAM_ID
+```
+
 The bot container waits for PostgreSQL, applies every Alembic migration, and starts Telegram
 long polling. Only one bot replica should run during the pilot because it also owns the
 minute-based assignment scheduler. Stop it with `docker compose down`; the named PostgreSQL
@@ -45,14 +53,15 @@ pilot database.
 
 Create the Telegram bot with BotFather, put its token in `.env`, and obtain your numeric Telegram
 ID from a trusted ID bot or Telegram API update. Set a random callback secret of at least 32
-characters. Never commit `.env`.
+characters. Create an OpenRouter API key and set `AMATH_OPENROUTER_API_KEY`. The bot refuses to
+start when this key is missing. Never commit `.env`.
 
-The deployable runtime currently covers consent onboarding, tutor invites and controls, catalogue
-assignment, scheduled delivery, progress, and review of marking records. Automated handwriting
-marking additionally requires concrete vision/reasoning provider adapters and approved provider
-data controls; the repository currently defines those provider contracts but does not choose a
-vendor or send student work to one. Do not advertise automated marking until that adapter and the
-consented labelled evaluation set pass the launch gate.
+The marking pipeline uses OpenRouter's `openrouter/free` router. It never automatically switches
+to paid inference, so inference charges are zero, but free-provider capacity, latency, available
+model, and answer quality can vary. Student images, OCR text, and published solutions leave the
+deployment machine and are sent through OpenRouter to the selected free provider. Free providers
+may log requests or use them for training; review the current provider policies and disclose this
+before enrolment. Every proposed grade must be reviewed by the tutor before it becomes final.
 
 Set production configuration:
 
@@ -62,6 +71,7 @@ export AMATH_TIMEZONE='Asia/Singapore'
 export AMATH_TELEGRAM_BOT_TOKEN='123456:replace-with-botfather-token'
 export AMATH_TUTOR_TELEGRAM_ID='123456789'
 export AMATH_REVIEW_CALLBACK_SECRET='replace-with-at-least-32-random-characters'
+export AMATH_OPENROUTER_API_KEY='replace-with-openrouter-api-key'
 ```
 
 Apply migrations:
@@ -88,14 +98,17 @@ single-use `/start` invite and must consent before an account is created.
 - `/progress NAME` shows learning progress.
 - `/review` opens the next flagged marking review.
 
-Until handwriting provider adapters are configured, photo and PDF messages receive an explicit
-unavailable response and are not stored.
-
 The bot supports either polling or webhook deployment through the aiogram
-dispatcher. The delivery scheduler ticks once per minute in `Asia/Singapore` and
-uses database uniqueness constraints to prevent duplicate daily assignments.
+dispatcher. The assignment scheduler ticks once per minute in `Asia/Singapore` and uses database
+uniqueness constraints to prevent duplicate daily assignments. Independently, the marking worker
+wakes every 3 seconds. Transient failures persist retry deadlines of 3, 10, 30, 30, then 60
+seconds; further attempts continue every 60 seconds indefinitely. Authentication or configuration
+failures retry hourly. These deadlines survive process restarts.
 Source attribution and solution metadata are retained for the tutor and are not
 included in student-facing message text.
+
+To rotate the OpenRouter key, replace `AMATH_OPENROUTER_API_KEY` in `.env` and restart the bot
+with `docker compose restart bot`. Do not print the old or new key in logs or shell history.
 
 To validate configuration without connecting to Telegram:
 

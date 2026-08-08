@@ -1,6 +1,7 @@
 import argparse
 import getpass
 import json
+import os
 import secrets
 import urllib.error
 import urllib.request
@@ -36,17 +37,27 @@ def main() -> int:
         print("Telegram did not accept the token.")
         return 1
 
+    openrouter_api_key = getpass.getpass(
+        "Paste AMATH_OPENROUTER_API_KEY (hidden): "
+    ).strip()
+    if not openrouter_api_key:
+        print("AMATH_OPENROUTER_API_KEY must not be blank.")
+        return 1
+
     contents = "\n".join(
         (
             f"POSTGRES_PASSWORD={secrets.token_urlsafe(32)}",
             f"AMATH_TELEGRAM_BOT_TOKEN={token}",
             f"AMATH_TUTOR_TELEGRAM_ID={args.telegram_id}",
             f"AMATH_REVIEW_CALLBACK_SECRET={secrets.token_urlsafe(48)}",
+            f"AMATH_OPENROUTER_API_KEY={openrouter_api_key}",
             "",
         )
     )
-    args.output.write_text(contents)
-    args.output.chmod(0o600)
+    descriptor = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as output_file:
+        os.fchmod(output_file.fileno(), 0o600)
+        output_file.write(contents)
     print(f"Configuration saved securely for @{payload['result']['username']}.")
     return 0
 

@@ -15,14 +15,16 @@ export AMATH_TIMEZONE='Asia/Singapore'
 export AMATH_TELEGRAM_BOT_TOKEN='BOTFATHER_TOKEN'
 export AMATH_TUTOR_TELEGRAM_ID='ALLOWLISTED_NUMERIC_ID'
 export AMATH_REVIEW_CALLBACK_SECRET='AT_LEAST_32_RANDOM_CHARACTERS'
+export AMATH_OPENROUTER_API_KEY='OPENROUTER_API_KEY'
 UV_CACHE_DIR=/tmp/amath-uv-cache uv sync --frozen
 UV_CACHE_DIR=/tmp/amath-uv-cache uv run alembic upgrade head
 ```
 
 Validate configuration with `AMATH_TELEGRAM_DRY_RUN=true uv run python -m amath_bot.app`.
-Run the service under a supervisor with one scheduler leader. Restrict database and log
-access to the operator and tutor; enable encrypted daily PostgreSQL backups and test a restore
-before launch. Backups must follow the same retention policy as primary records.
+The service fails at startup if `AMATH_OPENROUTER_API_KEY` is absent. Run the service under a
+supervisor with one scheduler leader. Restrict database and log access to the operator and tutor;
+enable encrypted daily PostgreSQL backups and test a restore before launch. Backups must follow
+the same retention policy as primary records.
 
 ## Student and catalogue controls
 
@@ -31,9 +33,13 @@ Before issuing an invite, explain the recorded personal data and AI processing. 
 stop if consent is declined. A tutor must verify each question boundary, marks, objective tags,
 and matching published worked solution; final-answer-only material remains ineligible.
 
-Confirm the AI vision/reasoning providers have training disabled, suitable regional/data
-retention terms, and no provider-side logging beyond the agreed processing window. Record the
-provider configuration review outside the student database.
+The bot uses OpenRouter's `openrouter/free` router and never automatically switches to paid
+inference. Inference charges are therefore zero, but free-provider capacity, latency, selected
+model, and answer quality are variable. Student images, extracted OCR text, and published
+solutions leave the deployment machine and pass through OpenRouter to a free provider. Those
+providers may log requests or train on them. Review and record the current OpenRouter and selected
+provider data terms outside the student database, disclose them during consent, and do not enrol a
+student unless they are acceptable. Every proposed grade requires tutor review before it is final.
 
 ## Preflight and dry run
 
@@ -62,6 +68,17 @@ Alert immediately when `submission_media_deletion_failures_total` increases. Con
 worker succeeds and `media_deleted_at` is recorded; do not manually mark deletion complete.
 Unreviewed flagged attempts become unresolved at 24 hours, retain no media, and receive no final
 mark. Review access logs and pending-review counts at the end of each day.
+
+The assignment scheduler runs once per minute; this is separate from the marking worker, which
+wakes every 3 seconds. For transient provider failures, persisted retry deadlines are 3, 10, 30,
+30, then 60 seconds, followed by 60-second retries indefinitely. Authentication and configuration
+failures retry hourly. Because deadlines are stored in PostgreSQL, restarting the bot does not
+reset the sequence. Investigate a sustained retry backlog rather than repeatedly restarting.
+
+To rotate the OpenRouter key, update `AMATH_OPENROUTER_API_KEY` in `.env` or the deployment secret
+manager and restart the bot (`docker compose restart bot` for Compose). Confirm startup without
+printing either key. Keep the old key active until the restarted service is healthy, then revoke it
+in OpenRouter.
 
 ## Outages and incidents
 
