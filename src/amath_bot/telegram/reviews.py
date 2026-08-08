@@ -189,7 +189,7 @@ class ReviewHandler:
             tutor_id=self._tutor_telegram_id,
             total=total,
             feedback=feedback,
-            reason="Tutor specified the mark after local OCR review.",
+            reason="Tutor specified the mark after AI review.",
         )
         notified = self._notifier is not None and await self._notifier.finalized(attempt_id)
         return TutorReply(

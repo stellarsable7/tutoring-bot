@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from amath_bot.assignments.tables import AssignmentRow
@@ -10,6 +11,7 @@ from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.db import Base
 from amath_bot.people.tables import StudentRow, TutorRow
 from amath_bot.reviews.service import ReviewService
+from amath_bot.reviews.tables import ReviewRow
 from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 from amath_bot.telegram.reviews import InvalidReviewCallback, ReviewCard, ReviewHandler
 
@@ -151,6 +153,28 @@ async def test_successful_notifier_is_reported_truthfully(session: AsyncSession)
 
     assert result.text == "Mark approved and student notified."
     assert notifier.finalized_attempts == [attempt.id]
+
+
+async def test_tutor_specified_mark_uses_provider_neutral_audit_wording(
+    session: AsyncSession,
+) -> None:
+    attempt = await add_flagged_attempt(session)
+    handler = ReviewHandler(
+        tutor_telegram_id=100,
+        session=session,
+        reviews=ReviewService(session),
+        callback_secret="test-secret",
+    )
+
+    result = await handler.specify_mark(
+        FakeMessage(FakeUser(100)), total=3, feedback="Tutor correction."
+    )
+
+    assert result.text == "Mark saved; student notification is pending."
+    review = await session.scalar(select(ReviewRow).where(ReviewRow.attempt_id == attempt.id))
+    assert review is not None
+    assert review.reason == "Tutor specified the mark after AI review."
+    assert "local" not in review.reason.lower()
 
 
 async def test_student_and_tampered_callbacks_are_rejected(session: AsyncSession) -> None:
