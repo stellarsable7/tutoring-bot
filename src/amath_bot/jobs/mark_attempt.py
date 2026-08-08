@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.people.tables import StudentRow
 from amath_bot.submissions.tables import AttemptRow
+
+logger = logging.getLogger(__name__)
 
 
 def retry_delay(failed_attempt: int) -> timedelta:
@@ -107,6 +110,10 @@ class MarkAttemptJob:
                 if outcome.total > outcome.maximum:
                     raise MarkingPipelineError("marking total exceeds maximum")
             except MarkingConfigurationError as error:
+                logger.warning(
+                    "Marking configuration failure; retrying in one hour: %s",
+                    error.diagnostic,
+                )
                 await self._persist_failure(
                     attempt, error, retry_at=self._now() + timedelta(hours=1)
                 )

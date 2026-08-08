@@ -208,6 +208,34 @@ async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEn
         assert attempt.marking_last_error == "provider is not configured"
 
 
+@pytest.mark.asyncio
+async def test_configuration_failure_logs_only_bounded_safe_diagnostic(
+    engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    diagnostic = "safe:" + "x" * 600
+    unlogged_suffix = "OPENROUTER_API_KEY=must-not-appear"
+    async with factory() as session:
+        add_attempt(session)
+        await session.commit()
+
+        with caplog.at_level("WARNING", logger="amath_bot.jobs.mark_attempt"):
+            await job(
+                session,
+                FailingPipeline(
+                    MarkingConfigurationError(diagnostic + unlogged_suffix)
+                ),
+                now,
+            ).run_pending()
+
+    assert len(caplog.records) == 1
+    assert caplog.records[0].getMessage() == (
+        f"Marking configuration failure; retrying in one hour: {diagnostic[:500]}"
+    )
+    assert unlogged_suffix not in caplog.text
+
+
 def test_pipeline_error_exposes_bounded_caller_supplied_safe_message() -> None:
     safe_reason = "safe:" + "x" * 600
     error = MarkingPipelineError(safe_reason)
