@@ -8,9 +8,8 @@ class Settings(BaseSettings):
     tutor_telegram_id: int | None = None
     review_callback_secret: str | None = None
     telegram_dry_run: bool = False
-    ollama_url: str = "http://host.docker.internal:11434"
-    ollama_vision_model: str = "qwen3-vl:4b-instruct"
-    marking_interval_seconds: int = 20
+    openrouter_api_key: str | None = None
+    openrouter_url: str = "https://openrouter.ai/api/v1"
 
     model_config = SettingsConfigDict(
         env_prefix="AMATH_",
