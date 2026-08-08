@@ -3,9 +3,42 @@ import getpass
 import json
 import os
 import secrets
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+
+def _write_env_atomic(output: Path, contents: str, *, force: bool) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=output.parent,
+        prefix=f".{output.name}.",
+        suffix=".tmp",
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w") as output_file:
+            os.fchmod(output_file.fileno(), 0o600)
+            output_file.write(contents)
+            output_file.flush()
+            os.fsync(output_file.fileno())
+
+        if force:
+            os.replace(temporary, output)
+        else:
+            os.link(temporary, output)
+            temporary.unlink()
+
+        directory_descriptor = os.open(
+            output.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -15,7 +48,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    if args.output.exists() and not args.force:
+    if os.path.lexists(args.output) and not args.force:
         print(f"{args.output} already exists; use --force only to replace it deliberately.")
         return 1
 
@@ -54,10 +87,11 @@ def main() -> int:
             "",
         )
     )
-    descriptor = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w") as output_file:
-        os.fchmod(output_file.fileno(), 0o600)
-        output_file.write(contents)
+    try:
+        _write_env_atomic(args.output, contents, force=args.force)
+    except FileExistsError:
+        print(f"{args.output} already exists; use --force only to replace it deliberately.")
+        return 1
     print(f"Configuration saved securely for @{payload['result']['username']}.")
     return 0
 

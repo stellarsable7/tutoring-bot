@@ -76,9 +76,18 @@ failures retry hourly. Because deadlines are stored in PostgreSQL, restarting th
 reset the sequence. Investigate a sustained retry backlog rather than repeatedly restarting.
 
 To rotate the OpenRouter key, update `AMATH_OPENROUTER_API_KEY` in `.env` or the deployment secret
-manager and restart the bot (`docker compose restart bot` for Compose). Confirm startup without
-printing either key. Keep the old key active until the restarted service is healthy, then revoke it
-in OpenRouter.
+manager. Compose does not reload environment variables on `restart`, so recreate the bot and
+inspect its state and recent startup log:
+
+```bash
+docker compose up -d --no-deps --force-recreate bot
+docker compose ps --status running bot
+docker compose logs --since 2m bot
+```
+
+Confirm the bot is listed as running (and healthy if a health check is configured) and the recent
+log contains `starting Telegram polling`. Keep the old key active until both checks pass, then
+revoke it in OpenRouter. Do not print either key.
 
 ## Outages and incidents
 

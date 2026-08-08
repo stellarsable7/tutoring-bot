@@ -107,8 +107,18 @@ failures retry hourly. These deadlines survive process restarts.
 Source attribution and solution metadata are retained for the tutor and are not
 included in student-facing message text.
 
-To rotate the OpenRouter key, replace `AMATH_OPENROUTER_API_KEY` in `.env` and restart the bot
-with `docker compose restart bot`. Do not print the old or new key in logs or shell history.
+To rotate the OpenRouter key, replace `AMATH_OPENROUTER_API_KEY` in `.env`, then recreate the bot
+container so Compose loads the new value:
+
+```bash
+docker compose up -d --no-deps --force-recreate bot
+docker compose ps --status running bot
+docker compose logs --since 2m bot
+```
+
+Confirm the bot is listed as running (and healthy if a health check is configured) and that the
+recent log contains `starting Telegram polling`. Only then revoke the old key in OpenRouter. Do
+not print the old or new key in logs or shell history.
 
 To validate configuration without connecting to Telegram:
 
