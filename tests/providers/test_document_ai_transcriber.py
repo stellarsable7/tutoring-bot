@@ -30,6 +30,25 @@ def transcriber(client: httpx.AsyncClient) -> DocumentAITranscriber:
     return instance
 
 
+def test_document_ai_uses_application_default_credentials_when_json_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials = object()
+    monkeypatch.setattr(
+        "amath_bot.providers.document_ai_transcriber.google.auth.default",
+        lambda *, scopes: (credentials, "chloe-tutoring-bot"),
+    )
+
+    instance = DocumentAITranscriber(
+        httpx.AsyncClient(),
+        project_id="chloe-tutoring-bot",
+        location="us",
+        processor_id="processor",
+    )
+
+    assert instance._credentials is credentials
+
+
 @pytest.mark.asyncio
 async def test_document_ai_enables_enterprise_math_ocr() -> None:
     captured: dict[str, Any] = {}

@@ -51,6 +51,10 @@ AMATH_TUTOR_TELEGRAM_ID=$(secret amath-tutor-telegram-id)
 AMATH_REVIEW_CALLBACK_SECRET=$(secret amath-review-callback-secret)
 AMATH_OPENROUTER_API_KEY=$(secret amath-openrouter-key)
 AMATH_OPENROUTER_URL=https://openrouter.ai/api/v1
+AMATH_GEMINI_API_KEY=$(secret amath-gemini-api-key)
+AMATH_DOCUMENT_AI_PROJECT_ID=chloe-tutoring-bot
+AMATH_DOCUMENT_AI_LOCATION=us
+AMATH_DOCUMENT_AI_PROCESSOR_ID=$(secret amath-document-ai-processor-id)
 EOF
 unset DB_PASSWORD
 

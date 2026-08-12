@@ -4,7 +4,10 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
+import google.auth
 import httpx
+from google.auth.credentials import Credentials as GoogleCredentials
+from google.auth.exceptions import DefaultCredentialsError
 from google.auth.transport.requests import Request
 from google.oauth2.service_account import Credentials
 
@@ -30,22 +33,32 @@ class DocumentAITranscriber:
         project_id: str,
         location: str,
         processor_id: str,
-        service_account_json: str,
+        service_account_json: str | None = None,
     ) -> None:
         self._client = client
         self._url = (
             f"https://{location}-documentai.googleapis.com/v1/projects/{project_id}"
             f"/locations/{location}/processors/{processor_id}:process"
         )
-        try:
-            info = json.loads(service_account_json)
-            self._credentials = Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
-                info, scopes=(_SCOPE,)
-            )
-        except (TypeError, ValueError, KeyError) as error:
-            raise MarkingConfigurationError(
-                "Google Cloud service-account JSON is invalid"
-            ) from error
+        self._credentials: GoogleCredentials
+        if service_account_json and service_account_json.strip():
+            try:
+                info = json.loads(service_account_json)
+                self._credentials = Credentials.from_service_account_info(  # type: ignore[no-untyped-call]
+                    info, scopes=(_SCOPE,)
+                )
+            except (TypeError, ValueError, KeyError) as error:
+                raise MarkingConfigurationError(
+                    "Google Cloud service-account JSON is invalid"
+                ) from error
+        else:
+            try:
+                credentials, _ = google.auth.default(scopes=(_SCOPE,))
+                self._credentials = credentials
+            except DefaultCredentialsError as error:
+                raise MarkingConfigurationError(
+                    "Google Cloud application default credentials are unavailable"
+                ) from error
 
     async def _access_token(self) -> str:
         if not self._credentials.valid:

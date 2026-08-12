@@ -161,9 +161,6 @@ async def run_polling(settings: Settings) -> None:
         raise ValueError("AMATH_DOCUMENT_AI_PROJECT_ID is required")
     if not settings.document_ai_processor_id or not settings.document_ai_processor_id.strip():
         raise ValueError("AMATH_DOCUMENT_AI_PROCESSOR_ID is required")
-    if not settings.google_service_account_json or not settings.google_service_account_json.strip():
-        raise ValueError("AMATH_GOOGLE_SERVICE_ACCOUNT_JSON is required")
-
     engine = None
     bot: Bot | None = None
     http_client: httpx.AsyncClient | None = None
