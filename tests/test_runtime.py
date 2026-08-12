@@ -359,7 +359,7 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     monkeypatch.setattr(runtime, "create_scheduler", make_scheduler)
     monkeypatch.setattr(runtime, "add_marking_job", register_marking_job)
     monkeypatch.setattr(runtime, "OpenRouterTranscriber", make_provider)
-    monkeypatch.setattr(runtime, "OpenRouterGrader", make_provider)
+    monkeypatch.setattr(runtime, "GeminiGrader", make_provider)
     monkeypatch.setattr(runtime, "LocalVisionPipeline", make_pipeline)
     monkeypatch.setattr(runtime, "MarkAttemptJob", FakeMarkAttemptJob)
     async def daily_run() -> object:
@@ -391,16 +391,18 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
         review_callback_secret="x" * 32,
         openrouter_api_key=" secret-key ",
         openrouter_url="https://router.test/v1",
+        gemini_api_key=" gemini-key ",
+        gemini_url="https://gemini.test/v1beta",
     )
 
     with pytest.raises(PollingStopped, match="done"):
         await runtime.run_polling(settings)
 
     assert len(provider_arguments) == 2
-    for client, api_key, base_url in provider_arguments:
+    for client, _, _ in provider_arguments:
         assert isinstance(client, FakeClient)
-        assert api_key == " secret-key "
-        assert base_url == "https://router.test/v1"
+    assert provider_arguments[0][1:] == (" secret-key ", "https://router.test/v1")
+    assert provider_arguments[1][1:] == (" gemini-key ", "https://gemini.test/v1beta")
     assert pipeline_arguments == (sessions[2], bot, *providers_created)
     assert len(sessions) == 3
     assert events[0] == "scheduler-stopped"

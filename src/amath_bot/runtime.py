@@ -21,7 +21,8 @@ from amath_bot.jobs.mark_attempt import MarkAttemptJob
 from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
-from amath_bot.providers.openrouter_vision import OpenRouterGrader, OpenRouterTranscriber
+from amath_bot.providers.gemini_grader import GeminiGrader
+from amath_bot.providers.openrouter_vision import OpenRouterTranscriber
 from amath_bot.reviews.service import ReviewService
 from amath_bot.scheduler import DailyAssignmentJob, add_marking_job, create_scheduler
 from amath_bot.settings import Settings
@@ -156,6 +157,9 @@ async def run_polling(settings: Settings) -> None:
     if settings.openrouter_api_key is None or not settings.openrouter_api_key.strip():
         raise ValueError("AMATH_OPENROUTER_API_KEY is required")
     openrouter_api_key = settings.openrouter_api_key
+    if settings.gemini_api_key is None or not settings.gemini_api_key.strip():
+        raise ValueError("AMATH_GEMINI_API_KEY is required")
+    gemini_api_key = settings.gemini_api_key
 
     engine = None
     bot: Bot | None = None
@@ -172,10 +176,10 @@ async def run_polling(settings: Settings) -> None:
             api_key=openrouter_api_key,
             base_url=settings.openrouter_url,
         )
-        grader = OpenRouterGrader(
+        grader = GeminiGrader(
             http_client,
-            api_key=openrouter_api_key,
-            base_url=settings.openrouter_url,
+            api_key=gemini_api_key,
+            base_url=settings.gemini_url,
         )
         identity = await bot.get_me()
         if identity.username is None:
