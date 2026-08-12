@@ -48,8 +48,10 @@ class GeminiGrader(OpenRouterGrader):
         model: str,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        reasoning_effort: str | None = None,
+        overall_timeout: float = 180,
     ) -> _ModelT:
-        del schema_name, model
+        del schema_name, model, reasoning_effort, overall_timeout
         if images:
             raise MarkingPipelineError("Gemini grading received unexpected image data")
         generation_config: dict[str, object] = {

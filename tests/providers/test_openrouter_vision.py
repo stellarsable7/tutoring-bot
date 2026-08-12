@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -96,8 +97,10 @@ async def test_transcribe_sends_pinned_free_vision_request() -> None:
     payload = captured["payload"]
     assert payload["model"] == "google/gemma-4-26b-a4b-it:free"
     assert payload["stream"] is False
-    assert "temperature" not in payload
-    assert payload["provider"] == {"require_parameters": True}
+    assert payload["temperature"] == 0
+    assert payload["max_tokens"] == 1200
+    assert payload["reasoning"] == {"effort": "none"}
+    assert payload["provider"] == {"require_parameters": True, "sort": "throughput"}
     assert payload["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -248,6 +251,27 @@ async def test_transport_failures_are_ordinary_pipeline_errors(
             await adapter.transcribe(b"image")
     assert not isinstance(raised.value, MarkingConfigurationError)
     assert "sentinel-transport-secret" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_transcription_has_an_overall_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return _response()
+
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(
+        "amath_bot.providers.openrouter_vision.asyncio.timeout",
+        lambda seconds: original_timeout(0.001 if seconds == 60 else seconds),
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = OpenRouterVisionOCR(
+        client, api_key=API_KEY, base_url="https://router.test/v1/"
+    )
+    async with client:
+        with pytest.raises(MarkingPipelineError, match="vision OCR failed") as raised:
+            await adapter.transcribe(b"image")
+    assert raised.value.retryable is True
 
 
 @pytest.mark.asyncio

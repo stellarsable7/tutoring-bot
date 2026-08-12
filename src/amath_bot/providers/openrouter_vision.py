@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import logging
 from collections.abc import Mapping, Sequence
@@ -48,6 +49,8 @@ class _OpenRouterProvider:
         model: str,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        reasoning_effort: str | None = None,
+        overall_timeout: float = 180,
     ) -> _ModelT:
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         content.extend(
@@ -63,7 +66,7 @@ class _OpenRouterProvider:
         payload: dict[str, Any] = {
             "model": model,
             "stream": False,
-            "provider": {"require_parameters": True},
+            "provider": {"require_parameters": True, "sort": "throughput"},
             "messages": [{"role": "user", "content": content}],
             "response_format": {
                 "type": "json_schema",
@@ -78,13 +81,16 @@ class _OpenRouterProvider:
             payload["max_tokens"] = max_tokens
         if temperature is not None:
             payload["temperature"] = temperature
+        if reasoning_effort is not None:
+            payload["reasoning"] = {"effort": reasoning_effort}
         try:
-            response = await self._client.post(
-                self._url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json=payload,
-            )
-        except httpx.RequestError as error:
+            async with asyncio.timeout(overall_timeout):
+                response = await self._client.post(
+                    self._url,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    json=payload,
+                )
+        except (TimeoutError, httpx.RequestError) as error:
             raise MarkingPipelineError(failure_message) from error
 
         if response.status_code in _CONFIGURATION_ERROR_STATUSES:
@@ -172,6 +178,10 @@ class OpenRouterTranscriber(_OpenRouterProvider):
             stage="OCR",
             failure_message="OpenRouter vision OCR failed",
             model=TRANSCRIPTION_MODEL,
+            max_tokens=1200,
+            temperature=0,
+            reasoning_effort="none",
+            overall_timeout=60,
         )
 
 
