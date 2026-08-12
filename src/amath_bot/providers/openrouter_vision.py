@@ -119,11 +119,18 @@ class _OpenRouterProvider:
 class OpenRouterTranscriber(_OpenRouterProvider):
     async def transcribe(self, image: bytes) -> OCRResult:
         prompt = (
-            "Transcribe only the student's handwritten mathematical working, in reading order. "
+            "You are a mathematical-symbol transcriber. Speak mathematically: convert the student's "
+            "written mathematics into LaTeX expressions only. Transcribe the handwritten working in "
+            "reading order. "
             "Do not solve, correct, simplify, or infer missing work. Split every distinct written "
             "equality or transformation into its own numbered line, even when several appear on one "
-            "visual row. Render mathematics as valid LaTeX without display-math delimiters. Preserve "
-            "exactly what is written. Return JSON with exactly: lines, an array of objects containing "
+            "visual row. Every latex value must be a mathematically valid LaTeX expression that our "
+            "server can verify before grading. Use standard commands such as \\frac, \\sqrt, \\sin, "
+            "\\cos, \\tan, and \\csc, with balanced braces. Do not include prose, explanations, "
+            "comments, corrections, error notes, markdown, display-math delimiters, or \\text blocks "
+            "inside latex. Preserve exactly what is written. If a symbol cannot be transcribed into "
+            "valid LaTeX with confidence, put that token in uncertain_tokens instead of guessing or "
+            "commenting. Return JSON with exactly: lines, an array of objects containing "
             "id (consecutive positive integer starting at 1) and latex (string); and uncertain_tokens, "
             "an array naming every unreadable or ambiguous token. Use an empty array when none are "
             "uncertain."

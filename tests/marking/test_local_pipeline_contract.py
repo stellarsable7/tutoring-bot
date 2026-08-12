@@ -23,6 +23,24 @@ def test_configuration_error_is_a_marking_pipeline_error() -> None:
     assert issubclass(MarkingConfigurationError, MarkingPipelineError)
 
 
+@pytest.mark.parametrize(
+    "latex",
+    [
+        r"x = 2 \text{ (error in original line)}",
+        "$$x=2$$",
+        r"\frac{x}{y",
+    ],
+)
+def test_ocr_rejects_commentary_and_invalid_latex(latex: str) -> None:
+    with pytest.raises(ValueError):
+        OCRLine(id=1, latex=latex)
+
+
+def test_ocr_rejects_nonconsecutive_line_ids() -> None:
+    with pytest.raises(ValueError, match="consecutive"):
+        OCRResult(lines=(OCRLine(id=2, latex="x=2"),))
+
+
 @pytest.mark.asyncio
 async def test_pipeline_describes_generated_marks_as_ai_generated() -> None:
     class QueryResult:

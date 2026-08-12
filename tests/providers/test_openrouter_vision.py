@@ -108,8 +108,10 @@ async def test_transcribe_sends_pinned_free_vision_request() -> None:
     }
     content = payload["messages"][0]["content"]
     assert content[0]["type"] == "text"
-    assert "Transcribe only the student's handwritten mathematical working" in content[0]["text"]
+    assert "Transcribe the handwritten working" in content[0]["text"]
     assert "uncertain_tokens" in content[0]["text"]
+    assert "mathematical-symbol transcriber" in content[0]["text"]
+    assert "Do not include prose" in content[0]["text"]
     assert content[1] == {
         "type": "image_url",
         "image_url": {
