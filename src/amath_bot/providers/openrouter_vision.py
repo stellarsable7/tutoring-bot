@@ -6,13 +6,19 @@ from typing import Any, TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
+from amath_bot.jobs.mark_attempt import (
+    MarkingConfigurationError,
+    MarkingPipelineError,
+    MarkingValidationError,
+    OCRValidationError,
+    RateLimitError,
+)
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 
 # Pin each stage independently so changing the grader cannot affect transcription.
 TRANSCRIPTION_MODEL = "google/gemma-4-26b-a4b-it:free"
 GRADING_MODEL = "liquid/lfm-2.5-2.6b:free"
-_CONFIGURATION_ERROR_STATUSES = frozenset({400, 401, 403, 422})
+_CONFIGURATION_ERROR_STATUSES = frozenset({400, 401, 403, 404, 422})
 
 _logger = logging.getLogger(__name__)
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -85,9 +91,16 @@ class _OpenRouterProvider:
             raise MarkingConfigurationError(
                 f"OpenRouter rejected provider request ({response.status_code})"
             )
-        if response.status_code >= 400:
+        if response.status_code == 429:
+            raise RateLimitError(failure_message)
+        if response.status_code == 408 or response.status_code >= 500:
             raise MarkingPipelineError(failure_message)
+        if response.status_code >= 400:
+            raise MarkingConfigurationError(
+                f"OpenRouter rejected provider request ({response.status_code})"
+            )
 
+        response_content = response.text
         try:
             envelope = response.json()
             if not isinstance(envelope, Mapping):
@@ -108,7 +121,14 @@ class _OpenRouterProvider:
                 raise TypeError
             result = schema.model_validate_json(response_content)
         except (KeyError, TypeError, ValueError, ValidationError) as error:
-            raise MarkingPipelineError(failure_message) from error
+            if stage == "OCR":
+                detail = (
+                    str(error)
+                    if not isinstance(error, (KeyError, TypeError))
+                    else f"{type(error).__name__}: {error}"
+                )
+                raise OCRValidationError(detail, response_content) from error
+            raise MarkingValidationError(failure_message) from error
 
         selected_model = envelope.get("model")
         if isinstance(selected_model, str) and selected_model:
@@ -164,6 +184,7 @@ class OpenRouterGrader(_OpenRouterProvider):
         solution_text: str,
         maximum: int,
         expected_parts: tuple[str, ...] = (),
+        symbolic_verification: tuple[dict[str, Any], ...] = (),
     ) -> ProposedGrade:
         required_parts = ", ".join(f"({part})" for part in expected_parts)
         coverage_instruction = (
@@ -211,6 +232,9 @@ class OpenRouterGrader(_OpenRouterProvider):
             + problem_text
             + "\n\nPublished answer key:\n"
             + solution_text
+            + "\n\nServer-side symbolic verification (diagnostic only; parser failure does not "
+            "imply the OCR is wrong):\n"
+            + "\n".join(str(item) for item in symbolic_verification)
             + "\n\nStudent OCR:\n"
             + "\n".join(f"{index}. {line}" for index, line in enumerate(transcription, 1))
         )
@@ -228,21 +252,21 @@ class OpenRouterGrader(_OpenRouterProvider):
         calculated_total = sum(item.marks_awarded for item in proposed.decisions)
         decision_maximum = sum(item.maximum for item in proposed.decisions)
         if calculated_total > maximum:
-            raise MarkingPipelineError("provisional grade exceeds the published maximum")
+            raise MarkingValidationError("provisional grade exceeds the published maximum")
         if decision_maximum != maximum:
-            raise MarkingPipelineError(
+            raise MarkingValidationError(
                 "provisional grade does not cover the full published maximum"
             )
         if any(item.marks_awarded > item.maximum for item in proposed.decisions):
-            raise MarkingPipelineError("provisional decision exceeds its maximum")
+            raise MarkingValidationError("provisional decision exceeds its maximum")
         if any(item.marks_awarded and not item.student_lines for item in proposed.decisions):
-            raise MarkingPipelineError("awarded marks lack student evidence")
+            raise MarkingValidationError("awarded marks lack student evidence")
         returned_parts = {self._normalize_part(item.part) for item in proposed.decisions}
         missing_parts = [
             part for part in expected_parts if self._normalize_part(part) not in returned_parts
         ]
         if missing_parts:
-            raise MarkingPipelineError("provisional grade omits a labeled question part")
+            raise MarkingValidationError("provisional grade omits a labeled question part")
         return proposed.model_copy(update={"total": calculated_total})
 
     @staticmethod

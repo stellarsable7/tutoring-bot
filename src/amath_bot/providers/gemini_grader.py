@@ -5,7 +5,12 @@ from typing import TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
+from amath_bot.jobs.mark_attempt import (
+    MarkingConfigurationError,
+    MarkingPipelineError,
+    MarkingValidationError,
+    RateLimitError,
+)
 from amath_bot.providers.openrouter_vision import OpenRouterGrader
 
 GEMINI_GRADING_MODEL = "gemini-3.1-flash-lite"
@@ -70,8 +75,14 @@ class GeminiGrader(OpenRouterGrader):
             raise MarkingConfigurationError(
                 f"Gemini rejected provider request ({response.status_code})"
             )
-        if response.status_code >= 400:
+        if response.status_code == 429:
+            raise RateLimitError("Gemini provisional grading failed", retry_status="transcribed")
+        if response.status_code == 408 or response.status_code >= 500:
             raise MarkingPipelineError("Gemini provisional grading failed")
+        if response.status_code >= 400:
+            raise MarkingConfigurationError(
+                f"Gemini rejected provider request ({response.status_code})"
+            )
         try:
             envelope = response.json()
             if not isinstance(envelope, Mapping):
@@ -93,6 +104,6 @@ class GeminiGrader(OpenRouterGrader):
                 raise TypeError
             result = schema.model_validate_json(text)
         except (KeyError, TypeError, ValueError, ValidationError) as error:
-            raise MarkingPipelineError("Gemini provisional grading failed") from error
+            raise MarkingValidationError("Gemini provisional grading failed") from error
         logger.info("Gemini completed %s via %s", stage, GEMINI_GRADING_MODEL)
         return result

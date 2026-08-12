@@ -14,7 +14,10 @@ from amath_bot.jobs.mark_attempt import (
     MarkingConfigurationError,
     MarkingOutcome,
     MarkingPipelineError,
+    MarkingValidationError,
+    RateLimitError,
 )
+from amath_bot.marking.latex_verification import verify_latex_lines
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 
@@ -32,6 +35,7 @@ class TextGrader(Protocol):
         solution_text: str,
         maximum: int,
         expected_parts: tuple[str, ...] = (),
+        symbolic_verification: tuple[dict[str, Any], ...] = (),
     ) -> ProposedGrade: ...
 
 
@@ -98,6 +102,11 @@ class LocalVisionPipeline:
                 {"id": index, "latex": line.latex}
                 for index, line in enumerate(ocr_lines, 1)
             ]
+            attempt.ocr_verification = await asyncio.to_thread(
+                verify_latex_lines, attempt.ocr_transcription
+            )
+            attempt.ocr_raw_response = None
+            attempt.ocr_validation_error = None
             attempt.ocr_unclear = unclear
             attempt.ocr_confidence = confidence
             attempt.ocr_complete = complete
@@ -129,11 +138,18 @@ class LocalVisionPipeline:
                     expected_parts=await asyncio.to_thread(
                         self._question_parts, question.asset_path
                     ),
+                    symbolic_verification=tuple(attempt.ocr_verification or ()),
                 )
             except MarkingConfigurationError as error:
                 raise MarkingConfigurationError(
-                    error.diagnostic, retry_status="transcribed"
+                    error.diagnostic, retry_status="grading_configuration_failed"
                 ) from error
+            except MarkingValidationError as error:
+                raise MarkingValidationError(
+                    error.diagnostic, retry_status="grading_validation_failed"
+                ) from error
+            except RateLimitError as error:
+                raise RateLimitError(error.diagnostic, retry_status="transcribed") from error
             except MarkingPipelineError as error:
                 raise MarkingPipelineError(
                     error.diagnostic, retry_status="transcribed"

@@ -222,7 +222,7 @@ async def test_grading_rejects_missing_labeled_question_part() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [404, 408, 429, 500, 502, 503])
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503])
 async def test_retryable_http_statuses_are_ordinary_pipeline_errors(status: int) -> None:
     adapter, client = await _adapter(
         lambda request: httpx.Response(status, text="sentinel-response-secret")
@@ -251,7 +251,7 @@ async def test_transport_failures_are_ordinary_pipeline_errors(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [400, 401, 403, 422])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
 async def test_operational_statuses_are_safe_configuration_errors(status: int) -> None:
     adapter, client = await _adapter(
         lambda request: httpx.Response(status, text="sentinel-response-secret")

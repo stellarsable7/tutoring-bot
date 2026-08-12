@@ -221,6 +221,9 @@ class ReviewHandler:
         attempt.ocr_unclear = None
         attempt.ocr_confidence = None
         attempt.ocr_complete = None
+        attempt.ocr_raw_response = None
+        attempt.ocr_validation_error = None
+        attempt.ocr_verification = None
         attempt.result_total = None
         attempt.result_maximum = None
         attempt.feedback = None

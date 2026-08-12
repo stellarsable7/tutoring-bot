@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.13,<2",
   "aiogram>=3.13,<4",
+  "antlr4-python3-runtime>=4.11,<4.12",
   "apscheduler>=3.10,<4",
   "asyncpg>=0.29,<1",
   "cryptography>=43,<47",

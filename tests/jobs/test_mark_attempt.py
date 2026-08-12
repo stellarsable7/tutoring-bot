@@ -19,6 +19,8 @@ from amath_bot.jobs.mark_attempt import (
     MarkingConfigurationError,
     MarkingOutcome,
     MarkingPipelineError,
+    OCRValidationError,
+    RateLimitError,
     retry_delay,
 )
 from amath_bot.submissions.tables import AttemptRow
@@ -247,7 +249,7 @@ async def test_transient_failures_persist_exact_retry_schedule_across_sessions(
 
 
 @pytest.mark.asyncio
-async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEngine) -> None:
+async def test_configuration_failure_stops_automatic_retry(engine: AsyncEngine) -> None:
     now = datetime(2026, 8, 8, 12, tzinfo=UTC)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -259,10 +261,53 @@ async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEn
             now,
         ).run_pending()
         await session.refresh(attempt)
-        # SQLite returns timezone-naive DateTime values even for timezone=True columns.
-        assert attempt.marking_retry_at == (now + timedelta(hours=1)).replace(tzinfo=None)
+        assert attempt.status == "configuration_failed"
+        assert attempt.marking_retry_at is None
         assert attempt.marking_attempts == 1
         assert attempt.marking_last_error == "provider is not configured"
+
+
+@pytest.mark.asyncio
+async def test_ocr_validation_failure_stores_diagnostics_without_retry(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session)
+        await session.commit()
+
+        await job(
+            session,
+            FailingPipeline(OCRValidationError("forbidden prose", '{"lines":[]}')),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.status == "ocr_validation_failed"
+        assert attempt.marking_attempts == 1
+        assert attempt.marking_retry_at is None
+        assert attempt.ocr_raw_response == '{"lines":[]}'
+        assert attempt.ocr_validation_error == "forbidden prose"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_uses_exponential_backoff_with_jitter(
+    engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    monkeypatch.setattr("amath_bot.jobs.mark_attempt.random.uniform", lambda low, high: high)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session, attempts=2)
+        await session.commit()
+
+        await job(session, FailingPipeline(RateLimitError("rate limited")), now).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.marking_attempts == 3
+        # Third failure: 3 * 2^2 seconds, plus the maximum 25% jitter.
+        assert attempt.marking_retry_at == (now + timedelta(seconds=15)).replace(tzinfo=None)
 
 
 @pytest.mark.asyncio
@@ -288,7 +333,7 @@ async def test_configuration_failure_logs_only_bounded_safe_diagnostic(
 
     assert len(caplog.records) == 1
     assert caplog.records[0].getMessage() == (
-        f"Marking configuration failure; retrying in one hour: {diagnostic[:500]}"
+        f"Marking configuration failure; automatic retry disabled: {diagnostic[:500]}"
     )
     assert unlogged_suffix not in caplog.text
 

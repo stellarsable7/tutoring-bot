@@ -128,6 +128,9 @@ class SubmissionService:
         attempt.ocr_unclear = None
         attempt.ocr_confidence = None
         attempt.ocr_complete = None
+        attempt.ocr_raw_response = None
+        attempt.ocr_validation_error = None
+        attempt.ocr_verification = None
         attempt.status = "queued"
         attempt.queued_at = datetime.now(UTC)
         await self._session.commit()
