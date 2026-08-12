@@ -22,8 +22,6 @@ def validate_polling_settings(settings: Settings) -> None:
             "AMATH_TELEGRAM_BOT_TOKEN, AMATH_TUTOR_TELEGRAM_ID, and "
             "AMATH_REVIEW_CALLBACK_SECRET are required"
         )
-    if not settings.openrouter_api_key or not settings.openrouter_api_key.strip():
-        raise ValueError("AMATH_OPENROUTER_API_KEY is required")
     if not settings.gemini_api_key or not settings.gemini_api_key.strip():
         raise ValueError("AMATH_GEMINI_API_KEY is required")
 

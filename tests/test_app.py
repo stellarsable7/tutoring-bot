@@ -47,22 +47,8 @@ def polling_settings(**overrides: object) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-def test_polling_settings_reject_missing_openrouter_api_key() -> None:
-    settings = polling_settings(openrouter_api_key=None)
-
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
-        app.validate_polling_settings(settings)
-
-
-def test_polling_settings_reject_whitespace_openrouter_api_key() -> None:
-    settings = polling_settings(openrouter_api_key="   \t")
-
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
-        app.validate_polling_settings(settings)
-
-
-def test_polling_settings_accept_valid_openrouter_api_key() -> None:
-    app.validate_polling_settings(polling_settings())
+def test_polling_settings_do_not_require_openrouter_api_key() -> None:
+    app.validate_polling_settings(polling_settings(openrouter_api_key=None))
 
 
 @pytest.mark.parametrize("api_key", [None, "", "   "])

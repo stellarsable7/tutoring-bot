@@ -22,7 +22,7 @@ from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
 from amath_bot.providers.gemini_grader import GeminiGrader
-from amath_bot.providers.openrouter_vision import OpenRouterTranscriber
+from amath_bot.providers.gemma_transcriber import GemmaTranscriber
 from amath_bot.reviews.service import ReviewService
 from amath_bot.scheduler import DailyAssignmentJob, add_marking_job, create_scheduler
 from amath_bot.settings import Settings
@@ -154,9 +154,6 @@ async def run_polling(settings: Settings) -> None:
     tutor_telegram_id = settings.tutor_telegram_id
     if settings.review_callback_secret is None or len(settings.review_callback_secret) < 32:
         raise ValueError("review callback secret must be at least 32 characters")
-    if settings.openrouter_api_key is None or not settings.openrouter_api_key.strip():
-        raise ValueError("AMATH_OPENROUTER_API_KEY is required")
-    openrouter_api_key = settings.openrouter_api_key
     if settings.gemini_api_key is None or not settings.gemini_api_key.strip():
         raise ValueError("AMATH_GEMINI_API_KEY is required")
     gemini_api_key = settings.gemini_api_key
@@ -171,10 +168,10 @@ async def run_polling(settings: Settings) -> None:
         scoped = async_scoped_session(factory, scopefunc=asyncio.current_task)
         bot = create_bot(settings.telegram_bot_token)
         http_client = httpx.AsyncClient(timeout=180)
-        transcriber = OpenRouterTranscriber(
+        transcriber = GemmaTranscriber(
             http_client,
-            api_key=openrouter_api_key,
-            base_url=settings.openrouter_url,
+            api_key=gemini_api_key,
+            base_url=settings.gemini_url,
         )
         grader = GeminiGrader(
             http_client,

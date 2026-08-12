@@ -141,7 +141,7 @@ async def test_scoped_session_is_removed_after_handler_failure() -> None:
 
 
 @pytest.mark.parametrize("api_key", [None, "", "   ", "\t\n"])
-async def test_run_polling_rejects_missing_openrouter_key_before_startup(
+async def test_run_polling_rejects_missing_gemini_key_before_startup(
     monkeypatch: pytest.MonkeyPatch, api_key: str | None
 ) -> None:
     engine_created = False
@@ -156,10 +156,10 @@ async def test_run_polling_rejects_missing_openrouter_key_before_startup(
         telegram_bot_token="token",
         tutor_telegram_id=1,
         review_callback_secret="x" * 32,
-        openrouter_api_key=api_key,
+        gemini_api_key=api_key,
     )
 
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
+    with pytest.raises(ValueError, match="AMATH_GEMINI_API_KEY"):
         await runtime.run_polling(settings)
 
     assert engine_created is False
@@ -358,7 +358,7 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
 
     monkeypatch.setattr(runtime, "create_scheduler", make_scheduler)
     monkeypatch.setattr(runtime, "add_marking_job", register_marking_job)
-    monkeypatch.setattr(runtime, "OpenRouterTranscriber", make_provider)
+    monkeypatch.setattr(runtime, "GemmaTranscriber", make_provider)
     monkeypatch.setattr(runtime, "GeminiGrader", make_provider)
     monkeypatch.setattr(runtime, "LocalVisionPipeline", make_pipeline)
     monkeypatch.setattr(runtime, "MarkAttemptJob", FakeMarkAttemptJob)
@@ -401,7 +401,7 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     assert len(provider_arguments) == 2
     for client, _, _ in provider_arguments:
         assert isinstance(client, FakeClient)
-    assert provider_arguments[0][1:] == (" secret-key ", "https://router.test/v1")
+    assert provider_arguments[0][1:] == (" gemini-key ", "https://gemini.test/v1beta")
     assert provider_arguments[1][1:] == (" gemini-key ", "https://gemini.test/v1beta")
     assert pipeline_arguments == (sessions[2], bot, *providers_created)
     assert len(sessions) == 3
