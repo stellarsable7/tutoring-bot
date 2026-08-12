@@ -42,6 +42,9 @@ def polling_settings(**overrides: object) -> Settings:
         "review_callback_secret": "callback-secret",
         "openrouter_api_key": "openrouter-key",
         "gemini_api_key": "gemini-key",
+        "document_ai_project_id": "project",
+        "document_ai_processor_id": "processor",
+        "google_service_account_json": "{}",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
