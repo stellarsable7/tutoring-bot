@@ -13,6 +13,8 @@ services:
       AMATH_REVIEW_CALLBACK_SECRET: ${AMATH_REVIEW_CALLBACK_SECRET}
       AMATH_OPENROUTER_API_KEY: ${AMATH_OPENROUTER_API_KEY}
       AMATH_OPENROUTER_URL: ${AMATH_OPENROUTER_URL:-https://openrouter.ai/api/v1}
+      AMATH_GEMINI_API_KEY: ${AMATH_GEMINI_API_KEY}
+      AMATH_GEMINI_URL: ${AMATH_GEMINI_URL:-https://generativelanguage.googleapis.com/v1beta}
 
   postgres:
     image: postgres:16-alpine
