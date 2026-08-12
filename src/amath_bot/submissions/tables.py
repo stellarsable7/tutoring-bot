@@ -37,6 +37,10 @@ class AttemptRow(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
     marking_last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ocr_transcription: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    ocr_unclear: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    ocr_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    ocr_complete: Mapped[bool | None] = mapped_column(nullable=True)
     result_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_maximum: Mapped[int | None] = mapped_column(Integer, nullable=True)
     feedback: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

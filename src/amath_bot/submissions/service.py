@@ -124,6 +124,10 @@ class SubmissionService:
         attempt.marking_attempts = 0
         attempt.marking_retry_at = None
         attempt.marking_last_error = None
+        attempt.ocr_transcription = None
+        attempt.ocr_unclear = None
+        attempt.ocr_confidence = None
+        attempt.ocr_complete = None
         attempt.status = "queued"
         attempt.queued_at = datetime.now(UTC)
         await self._session.commit()

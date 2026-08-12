@@ -8,7 +8,11 @@ import httpx
 import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
-from amath_bot.providers.openrouter_vision import OPENROUTER_MODEL, OpenRouterVisionOCR
+from amath_bot.providers.openrouter_vision import (
+    GRADING_MODEL,
+    TRANSCRIPTION_MODEL,
+    OpenRouterVisionOCR,
+)
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 
 API_KEY = "secret-openrouter-key"
@@ -28,6 +32,10 @@ def _ocr_content(**updates: Any) -> str:
 def _grade_content(**updates: Any) -> str:
     value = {
         "total": 99,
+        "final_answer_correct": True,
+        "method_valid": True,
+        "overall_verdict": "correct",
+        "reasoning": "The answer and supporting method are valid.",
         "decisions": [
             {
                 "part": "a",
@@ -70,7 +78,7 @@ async def _adapter(handler: Callable[[httpx.Request], httpx.Response]) -> tuple[
 
 
 @pytest.mark.asyncio
-async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
+async def test_transcribe_sends_pinned_free_vision_request() -> None:
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -84,13 +92,13 @@ async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
         result = await adapter.transcribe(b"png-image")
 
     assert result == OCRResult(complete=True, lines=("x = 2",), confidence=0.9)
-    assert OPENROUTER_MODEL == "openrouter/free"
+    assert TRANSCRIPTION_MODEL == "google/gemma-4-26b-a4b-it:free"
     assert captured["url"] == "https://router.test/v1/chat/completions"
     assert captured["authorization"] == f"Bearer {API_KEY}"
     payload = captured["payload"]
-    assert payload["model"] == "openrouter/free"
+    assert payload["model"] == "google/gemma-4-26b-a4b-it:free"
     assert payload["stream"] is False
-    assert payload["temperature"] == 0
+    assert "temperature" not in payload
     assert payload["provider"] == {"require_parameters": True}
     assert payload["response_format"] == {
         "type": "json_schema",
@@ -124,11 +132,15 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     async with client:
         result = await adapter.propose_grade(
             transcription=("x = 2", "y = 3"),
+            problem_images=(b"problem",),
             solution_images=(b"first", b"second"),
             maximum=4,
         )
 
     assert result.total == 3
+    assert captured["temperature"] == 0
+    assert captured["model"] == GRADING_MODEL
+    assert GRADING_MODEL == "qwen/qwen3-vl-32b-instruct"
     assert captured["max_tokens"] == 2200
     assert captured["response_format"]["json_schema"] == {
         "name": "proposed_grade",
@@ -138,10 +150,12 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     content = captured["messages"][0]["content"]
     prompt = content[0]["text"]
     assert "worth exactly 4 marks" in prompt
+    assert "sum of all decision maximum values must equal" in prompt
     assert prompt.endswith("Student OCR:\n1. x = 2\n2. y = 3")
+    assert "first 1 attached image(s) contain the problem" in prompt
     assert [item["image_url"]["url"] for item in content[1:]] == [
         "data:image/png;base64," + base64.b64encode(value).decode("ascii")
-        for value in (b"first", b"second")
+        for value in (b"problem", b"first", b"second")
     ]
 
 
@@ -173,7 +187,38 @@ async def test_grading_invariants(maximum: int, decisions: list[dict[str, Any]])
     async with client:
         with pytest.raises(MarkingPipelineError):
             await adapter.propose_grade(
-                transcription=("line",), solution_images=(b"scheme",), maximum=maximum
+                transcription=("line",),
+                problem_images=(b"problem",),
+                solution_images=(b"scheme",),
+                maximum=maximum,
+            )
+
+
+@pytest.mark.asyncio
+async def test_grading_rejects_missing_labeled_question_part() -> None:
+    decisions = [
+        {
+            "part": "(a)",
+            "marks_awarded": 1,
+            "maximum": 6,
+            "scheme_evidence": "visible step",
+            "reason": "reason",
+            "student_lines": ["line"],
+            "provider_confidence": 0.8,
+        }
+    ]
+    adapter, client = await _adapter(
+        lambda request: _response(_grade_content(decisions=decisions))
+    )
+
+    async with client:
+        with pytest.raises(MarkingPipelineError, match="omits a labeled"):
+            await adapter.propose_grade(
+                transcription=("line",),
+                problem_images=(b"problem",),
+                solution_images=(b"scheme",),
+                maximum=6,
+                expected_parts=("a", "b"),
             )
 
 

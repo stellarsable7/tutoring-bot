@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.db import Base
 from amath_bot.jobs.mark_attempt import (
+    PROCESSING_LEASE,
     MarkAttemptJob,
     MarkingConfigurationError,
     MarkingOutcome,
@@ -138,13 +139,69 @@ async def test_claim_next_selects_only_due_queued_rows_in_id_order(
             async with factory() as observer_session:
                 observer = await observer_session.get(AttemptRow, claimed.id)
                 assert observer is not None
-                assert observer.status == "processing"
+                assert observer.status == "transcribing"
 
         assert claimed_ids == [null_due.id, past_due.id, exact_due.id]
         await session.refresh(future)
         await session.refresh(nonqueued)
         assert future.status == "queued"
         assert nonqueued.status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_grading_failure_retries_from_persisted_transcription(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session, status="transcribed")
+        attempt.ocr_transcription = ["x = 2"]
+        await session.commit()
+
+        await job(
+            session,
+            FailingPipeline(
+                MarkingPipelineError("grading unavailable", retry_status="transcribed")
+            ),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.status == "transcribed"
+        assert attempt.ocr_transcription == ["x = 2"]
+        assert attempt.marking_attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_stage_lease_is_reclaimed_without_losing_ocr(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(
+            session,
+            status="grading",
+            retry_at=now - timedelta(microseconds=1),
+        )
+        attempt.ocr_transcription = ["persisted line"]
+        await session.commit()
+        worker = job(
+            session,
+            SuccessfulPipeline(
+                MarkingOutcome(total=1, maximum=1, feedback=(), review_reasons=("review",))
+            ),
+            now,
+        )
+
+        claimed = await worker._claim_next(now)
+
+        assert claimed is not None
+        assert claimed.id == attempt.id
+        assert claimed.status == "grading"
+        assert claimed.ocr_transcription == ["persisted line"]
+        assert claimed.marking_retry_at == now + PROCESSING_LEASE
 
 
 @pytest.mark.asyncio

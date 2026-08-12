@@ -26,6 +26,10 @@ class ProposedGrade(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     total: int = Field(ge=0)
+    final_answer_correct: bool
+    method_valid: bool
+    overall_verdict: str = Field(pattern="^(correct|incorrect|partial)$")
+    reasoning: str = Field(min_length=1)
     decisions: tuple[ProposedDecision, ...]
     feedback: tuple[str, ...]
     unclear: tuple[str, ...] = ()

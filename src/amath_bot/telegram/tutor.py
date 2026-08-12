@@ -61,6 +61,7 @@ class TutorHandler:
             '/clearstudent "NAME" CONFIRM — clear a student’s recent bot chat\n'
             "/progress NAME — show progress\n"
             "/review — review flagged work\n"
+            "/reread — rerun OCR and vision for the current review\n"
             "/mark SCORE feedback — specify the mark for the current review"
         )
 

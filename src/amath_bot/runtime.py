@@ -21,7 +21,7 @@ from amath_bot.jobs.mark_attempt import MarkAttemptJob
 from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
-from amath_bot.providers.openrouter_vision import OpenRouterVisionOCR
+from amath_bot.providers.openrouter_vision import OpenRouterGrader, OpenRouterTranscriber
 from amath_bot.reviews.service import ReviewService
 from amath_bot.scheduler import DailyAssignmentJob, add_marking_job, create_scheduler
 from amath_bot.settings import Settings
@@ -167,7 +167,12 @@ async def run_polling(settings: Settings) -> None:
         scoped = async_scoped_session(factory, scopefunc=asyncio.current_task)
         bot = create_bot(settings.telegram_bot_token)
         http_client = httpx.AsyncClient(timeout=180)
-        vision = OpenRouterVisionOCR(
+        transcriber = OpenRouterTranscriber(
+            http_client,
+            api_key=openrouter_api_key,
+            base_url=settings.openrouter_url,
+        )
+        grader = OpenRouterGrader(
             http_client,
             api_key=openrouter_api_key,
             base_url=settings.openrouter_url,
@@ -225,6 +230,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="clearstudent", description="Clear a student's recent chat"),
                     BotCommand(command="progress", description="Show student progress"),
                     BotCommand(command="review", description="Review flagged marking"),
+                    BotCommand(command="reread", description="Run OCR again for current review"),
                     BotCommand(command="mark", description="Specify a reviewed mark"),
                     BotCommand(command="submit", description="Submit uploaded working for review"),
                 ]
@@ -244,7 +250,8 @@ async def run_polling(settings: Settings) -> None:
                     pipeline = LocalVisionPipeline(
                         marking_session,
                         bot,
-                        vision,
+                        transcriber,
+                        grader,
                     )
                     processed = await MarkAttemptJob(
                         marking_session,

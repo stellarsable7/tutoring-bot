@@ -12,6 +12,7 @@ from amath_bot.people.tables import StudentRow
 from amath_bot.submissions.tables import AttemptRow
 
 logger = logging.getLogger(__name__)
+PROCESSING_LEASE = timedelta(minutes=5)
 
 
 def retry_delay(failed_attempt: int) -> timedelta:
@@ -22,9 +23,10 @@ def retry_delay(failed_attempt: int) -> timedelta:
 
 
 class MarkingPipelineError(RuntimeError):
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, retry_status: str = "queued") -> None:
         super().__init__(message)
         self.diagnostic = message[:500]
+        self.retry_status = retry_status
 
 
 class MarkingConfigurationError(MarkingPipelineError):
@@ -73,9 +75,8 @@ class MarkAttemptJob:
         attempt = await self._session.scalar(
             select(AttemptRow)
             .where(
-                AttemptRow.status == "queued",
-                (AttemptRow.marking_retry_at.is_(None))
-                | (AttemptRow.marking_retry_at <= now),
+                AttemptRow.status.in_(("queued", "transcribed", "transcribing", "grading")),
+                (AttemptRow.marking_retry_at.is_(None)) | (AttemptRow.marking_retry_at <= now),
             )
             .order_by(AttemptRow.id)
             .limit(1)
@@ -83,7 +84,10 @@ class MarkAttemptJob:
         )
         if attempt is None:
             return None
-        attempt.status = "processing"
+        attempt.status = (
+            "grading" if attempt.status in ("transcribed", "grading") else "transcribing"
+        )
+        attempt.marking_retry_at = now + PROCESSING_LEASE
         await self._session.commit()
         return attempt
 
@@ -94,7 +98,7 @@ class MarkAttemptJob:
         *,
         retry_at: datetime | None = None,
     ) -> None:
-        attempt.status = "queued"
+        attempt.status = error.retry_status
         attempt.marking_attempts += 1
         attempt.marking_last_error = error.diagnostic
         attempt.marking_retry_at = retry_at or (
