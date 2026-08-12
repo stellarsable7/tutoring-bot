@@ -6,6 +6,35 @@ and deletion alerts have all passed their launch checks.
 
 ## Deploy
 
+Production releases are automated from GitHub. Every successful push to the `deploy` branch
+runs tests, Ruff, and mypy; builds an immutable image in Artifact Registry; and updates the
+singleton Compute Engine VM through IAP. GitHub authenticates with Workload Identity Federation,
+not a service-account key. Application secrets remain in Google Secret Manager.
+
+The deployed image starts only the bot. The VM deployment script runs `alembic upgrade head`
+before replacing the container, and it restores the previous image if Telegram polling does not
+start. Migrations must remain backward-compatible with the immediately previous release because
+application rollback does not downgrade the database.
+
+To inspect production without printing secrets:
+
+```bash
+gcloud compute ssh amath-bot --zone=asia-southeast1-b --tunnel-through-iap \
+  --command='sudo docker ps --filter name=amath-bot'
+gcloud compute ssh amath-bot --zone=asia-southeast1-b --tunnel-through-iap \
+  --command='sudo journalctl CONTAINER_NAME=amath-bot --since=-10m --no-pager'
+```
+
+To redeploy or roll back deliberately, obtain an immutable digest from Artifact Registry and run
+the installed deployment command through IAP:
+
+```bash
+gcloud compute ssh amath-bot --zone=asia-southeast1-b --tunnel-through-iap \
+  --command="sudo /usr/local/sbin/deploy-amath-bot 'asia-southeast1-docker.pkg.dev/chloe-tutoring-bot/amath-bot/amath-bot@sha256:DIGEST'"
+```
+
+Do not use mutable tags for a manual rollback.
+
 Use Python 3.12, PostgreSQL 16, and a dedicated Telegram bot. Store configuration in the
 deployment secret manager, never in source control:
 

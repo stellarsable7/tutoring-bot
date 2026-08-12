@@ -1,0 +1,72 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - deploy
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: chloe-tutoring-bot
+  REGION: asia-southeast1
+  ZONE: asia-southeast1-b
+  VM_NAME: amath-bot
+  IMAGE: asia-southeast1-docker.pkg.dev/chloe-tutoring-bot/amath-bot/amath-bot
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.3"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+
+  deploy:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/603609123677/locations/global/workloadIdentityPools/github/providers/tutoring-bot
+          service_account: github-deployer@chloe-tutoring-bot.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v3
+      - run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+      - name: Build and push image
+        run: |
+          docker build --tag "$IMAGE:$GITHUB_SHA" .
+          docker push "$IMAGE:$GITHUB_SHA"
+          DIGEST="$(gcloud artifacts docker images describe "$IMAGE:$GITHUB_SHA" \
+            --format='value(image_summary.digest)')"
+          echo "IMAGE_DIGEST=$IMAGE@$DIGEST" >> "$GITHUB_ENV"
+      - name: Install deployment script
+        run: |
+          gcloud compute scp --tunnel-through-iap --zone="$ZONE" \
+            scripts/deploy_gcp_vm.sh "$VM_NAME:/tmp/deploy_gcp_vm.sh"
+          gcloud compute ssh --tunnel-through-iap --zone="$ZONE" "$VM_NAME" --command \
+            "sudo install -o root -g root -m 0755 /tmp/deploy_gcp_vm.sh /usr/local/sbin/deploy-amath-bot"
+      - name: Deploy immutable image
+        run: |
+          gcloud compute ssh --tunnel-through-iap --zone="$ZONE" "$VM_NAME" --command \
+            "sudo /usr/local/sbin/deploy-amath-bot '$IMAGE_DIGEST'"
+      - name: Summarize release
+        run: |
+          {
+            echo "### Production deployment"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Image: \`$IMAGE_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
