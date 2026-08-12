@@ -54,6 +54,7 @@ class TutorHandler:
             "/students — list students\n"
             "/schedule NAME weekdays HH:MM [COUNT] — set delivery\n"
             '/assign "NAME" — send a random unseen question\n'
+            "/test — resend Diego’s latest question\n"
             "/pause NAME — pause delivery\n"
             "/resume NAME — resume delivery\n"
             '/remove "NAME" CONFIRM — permanently remove a student\n'
@@ -70,6 +71,9 @@ class TutorHandler:
 
     async def assign(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "assign", args)
+
+    async def test(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
+        return await self._run(message, "test", args)
 
     async def pause(self, message: TutorMessage, args: tuple[str, ...]) -> TutorReply:
         return await self._run(message, "pause", args)
@@ -187,6 +191,7 @@ def create_tutor_router(handler: TutorHandler) -> Router:
         "students",
         "schedule",
         "assign",
+        "test",
         "pause",
         "resume",
         "remove",

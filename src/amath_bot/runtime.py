@@ -223,6 +223,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="students", description="List enrolled students"),
                     BotCommand(command="schedule", description="Set a student's schedule"),
                     BotCommand(command="assign", description="Assign a question"),
+                    BotCommand(command="test", description="Resend Diego's latest question"),
                     BotCommand(command="pause", description="Pause a student"),
                     BotCommand(command="resume", description="Resume a student"),
                     BotCommand(command="remove", description="Permanently remove a student"),

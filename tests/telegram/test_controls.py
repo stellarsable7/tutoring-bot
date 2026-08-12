@@ -133,5 +133,59 @@ async def test_assign_chooses_an_unseen_question_without_an_objective(
     assert second == "Question queued for Ada Lovelace."
     assert len(assignments) == 2
     assert assignments[0].source_question_id != assignments[1].source_question_id
+
+
+async def test_test_command_requeues_diegos_latest_question(session: AsyncSession) -> None:
+    session.add(TutorRow(telegram_id=100))
+    diego = StudentRow(
+        telegram_id=200,
+        tutor_telegram_id=100,
+        display_name="Diego",
+        consented_at=datetime.now(UTC),
+    )
+    question = SourceQuestionRow(
+        source_url="https://example.test/q1",
+        solution_url="https://example.test/s1",
+        provider="test",
+        school="Example",
+        year=2025,
+        paper="1",
+        question_number="1",
+        syllabus_version="4049-2026",
+        objective_codes=["A1.sign"],
+        marks=3,
+        solution_kind="mark_scheme",
+        marking_steps=[],
+        tutor_validated=True,
+        eligible=True,
+    )
+    session.add_all([diego, question])
+    await session.flush()
+    session.add(
+        AssignmentRow(
+            student_id=diego.id,
+            source_question_id=question.id,
+            scheduled_date=datetime.now(UTC).date(),
+            sequence_number=1,
+            status="delivered",
+            selection_reason="original",
+        )
+    )
+    await session.commit()
+    controls = DatabaseTutorControls(
+        session,
+        tutor_telegram_id=100,
+        bot_username="amath_practice_bot",
+        people=FakePeople(),  # type: ignore[arg-type]
+        assignments=FakeAssignments(),  # type: ignore[arg-type]
+    )
+
+    result = await controls.execute("test", ())
+    rows = tuple(await session.scalars(select(AssignmentRow).order_by(AssignmentRow.id)))
+
+    assert result == "Latest question queued again for Diego."
+    assert len(rows) == 2
+    assert rows[1].source_question_id == rows[0].source_question_id
+    assert rows[1].status == "pending"
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.catalogue.tables import SourceQuestionRow
