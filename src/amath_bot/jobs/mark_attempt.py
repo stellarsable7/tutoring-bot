@@ -1,4 +1,5 @@
 import logging
+import random
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -12,6 +13,7 @@ from amath_bot.people.tables import StudentRow
 from amath_bot.submissions.tables import AttemptRow
 
 logger = logging.getLogger(__name__)
+PROCESSING_LEASE = timedelta(minutes=5)
 
 
 def retry_delay(failed_attempt: int) -> timedelta:
@@ -22,13 +24,44 @@ def retry_delay(failed_attempt: int) -> timedelta:
 
 
 class MarkingPipelineError(RuntimeError):
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self, message: str, *, retry_status: str = "queued", retryable: bool = True
+    ) -> None:
         super().__init__(message)
         self.diagnostic = message[:500]
+        self.retry_status = retry_status
+        self.retryable = retryable
+
+
+class OCRValidationError(MarkingPipelineError):
+    def __init__(self, validation_error: str, raw_response: str) -> None:
+        super().__init__(
+            f"OCR validation failed: {validation_error}",
+            retry_status="ocr_validation_failed",
+            retryable=False,
+        )
+        self.validation_error = validation_error
+        self.raw_response = raw_response
+
+
+class RateLimitError(MarkingPipelineError):
+    """A transient provider rate limit eligible for exponential backoff."""
+
+
+class MarkingValidationError(MarkingPipelineError):
+    """A deterministic provider-output validation failure."""
+
+    def __init__(
+        self, message: str, *, retry_status: str = "marking_validation_failed"
+    ) -> None:
+        super().__init__(message, retry_status=retry_status, retryable=False)
 
 
 class MarkingConfigurationError(MarkingPipelineError):
     """A safe operator-actionable provider configuration failure."""
+
+    def __init__(self, message: str, *, retry_status: str = "configuration_failed") -> None:
+        super().__init__(message, retry_status=retry_status, retryable=False)
 
 
 class MarkingOutcome(BaseModel):
@@ -73,9 +106,8 @@ class MarkAttemptJob:
         attempt = await self._session.scalar(
             select(AttemptRow)
             .where(
-                AttemptRow.status == "queued",
-                (AttemptRow.marking_retry_at.is_(None))
-                | (AttemptRow.marking_retry_at <= now),
+                AttemptRow.status.in_(("queued", "transcribed", "transcribing", "grading")),
+                (AttemptRow.marking_retry_at.is_(None)) | (AttemptRow.marking_retry_at <= now),
             )
             .order_by(AttemptRow.id)
             .limit(1)
@@ -83,7 +115,10 @@ class MarkAttemptJob:
         )
         if attempt is None:
             return None
-        attempt.status = "processing"
+        attempt.status = (
+            "grading" if attempt.status in ("transcribed", "grading") else "transcribing"
+        )
+        attempt.marking_retry_at = now + PROCESSING_LEASE
         await self._session.commit()
         return attempt
 
@@ -94,12 +129,23 @@ class MarkAttemptJob:
         *,
         retry_at: datetime | None = None,
     ) -> None:
-        attempt.status = "queued"
+        attempt.status = error.retry_status
         attempt.marking_attempts += 1
         attempt.marking_last_error = error.diagnostic
-        attempt.marking_retry_at = retry_at or (
-            self._now() + retry_delay(attempt.marking_attempts)
-        )
+        if isinstance(error, OCRValidationError):
+            attempt.ocr_raw_response = error.raw_response
+            attempt.ocr_validation_error = error.validation_error
+        if not error.retryable:
+            attempt.marking_retry_at = None
+        elif retry_at is not None:
+            attempt.marking_retry_at = retry_at
+        elif isinstance(error, RateLimitError):
+            base = min(3 * (2 ** (attempt.marking_attempts - 1)), 300)
+            attempt.marking_retry_at = self._now() + timedelta(
+                seconds=base + random.uniform(0, base * 0.25)
+            )
+        else:
+            attempt.marking_retry_at = self._now() + retry_delay(attempt.marking_attempts)
         await self._session.commit()
 
     async def run_pending(self) -> int:
@@ -111,12 +157,10 @@ class MarkAttemptJob:
                     raise MarkingPipelineError("marking total exceeds maximum")
             except MarkingConfigurationError as error:
                 logger.warning(
-                    "Marking configuration failure; retrying in one hour: %s",
+                    "Marking configuration failure; automatic retry disabled: %s",
                     error.diagnostic,
                 )
-                await self._persist_failure(
-                    attempt, error, retry_at=self._now() + timedelta(hours=1)
-                )
+                await self._persist_failure(attempt, error)
                 continue
             except MarkingPipelineError as error:
                 await self._persist_failure(attempt, error)

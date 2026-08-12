@@ -4,8 +4,14 @@ from typing import Any
 import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
-from amath_bot.marking.local_pipeline import LocalVisionPipeline, VisionOCR
-from amath_bot.providers.vision_models import OCRResult, ProposedDecision, ProposedGrade
+from amath_bot.marking.local_pipeline import LocalVisionPipeline, TextGrader, VisionTranscriber
+from amath_bot.providers.vision_models import (
+    OCRLine,
+    OCRResult,
+    OCRUncertainToken,
+    ProposedDecision,
+    ProposedGrade,
+)
 
 
 def test_vision_result_models_are_provider_neutral() -> None:
@@ -14,12 +20,41 @@ def test_vision_result_models_are_provider_neutral() -> None:
     assert ProposedGrade.__module__ == "amath_bot.providers.vision_models"
 
 
-def test_vision_ocr_protocol_remains_in_local_pipeline() -> None:
-    assert VisionOCR.__module__ == "amath_bot.marking.local_pipeline"
+def test_marking_stage_protocols_remain_in_local_pipeline() -> None:
+    assert VisionTranscriber.__module__ == "amath_bot.marking.local_pipeline"
+    assert TextGrader.__module__ == "amath_bot.marking.local_pipeline"
 
 
 def test_configuration_error_is_a_marking_pipeline_error() -> None:
     assert issubclass(MarkingConfigurationError, MarkingPipelineError)
+
+
+@pytest.mark.parametrize(
+    "latex",
+    [
+        r"x = 2 \text{ (error in original line)}",
+        "$$x=2$$",
+        r"\frac{x}{y",
+    ],
+)
+def test_ocr_rejects_commentary_and_invalid_latex(latex: str) -> None:
+    with pytest.raises(ValueError):
+        OCRLine(id=1, latex=latex)
+
+
+def test_ocr_rejects_nonconsecutive_line_ids() -> None:
+    with pytest.raises(ValueError, match="consecutive"):
+        OCRResult(lines=(OCRLine(id=2, latex="x=2"),))
+
+
+def test_ocr_uncertainty_references_a_known_line() -> None:
+    with pytest.raises(ValueError, match="unknown OCR line"):
+        OCRResult(
+            lines=(OCRLine(id=1, latex="x=2"),),
+            uncertain_tokens=(
+                OCRUncertainToken(line_id=2, token="x", alternatives=("x", "y")),
+            ),
+        )
 
 
 @pytest.mark.asyncio
@@ -27,7 +62,13 @@ async def test_pipeline_describes_generated_marks_as_ai_generated() -> None:
     class QueryResult:
         def one_or_none(self) -> tuple[object, object]:
             return (
-                object(),
+                SimpleNamespace(
+                    ocr_transcription=None,
+                    ocr_unclear=None,
+                    ocr_confidence=None,
+                    ocr_complete=None,
+                    status="transcribing",
+                ),
                 SimpleNamespace(solution_asset_path=None, marks=1),
             )
 
@@ -43,13 +84,16 @@ async def test_pipeline_describes_generated_marks_as_ai_generated() -> None:
                 ),
             )
 
+        async def commit(self) -> None:
+            return None
+
     class Bot:
         async def download(self, _file_id: str, *, destination: Any) -> None:
             destination.write(b"image")
 
     class OCR:
         async def transcribe(self, _image: bytes) -> OCRResult:
-            return OCRResult(lines=("working",), confidence=1.0, complete=True, unclear=())
+            return OCRResult(lines=(OCRLine(id=1, latex="working"),))
 
         async def propose_grade(self, **_kwargs: object) -> ProposedGrade:
             raise AssertionError("a grade is not proposed without a solution")

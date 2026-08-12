@@ -39,3 +39,15 @@ def test_marking_attempts_has_named_nonnegative_constraint() -> None:
     assert constraints["ck_submission_attempts_marking_attempts_nonnegative"] == (
         "marking_attempts >= 0"
     )
+
+
+def test_ocr_stage_columns_are_persisted() -> None:
+    table = AttemptRow.__table__
+
+    assert table.c.ocr_transcription.nullable is True
+    assert table.c.ocr_unclear.nullable is True
+    assert table.c.ocr_raw_response.nullable is True
+    assert table.c.ocr_validation_error.nullable is True
+    assert table.c.ocr_verification.nullable is True
+    assert table.c.ocr_confidence.nullable is True
+    assert table.c.ocr_complete.nullable is True

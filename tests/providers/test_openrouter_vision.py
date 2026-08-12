@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -8,7 +9,11 @@ import httpx
 import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
-from amath_bot.providers.openrouter_vision import OPENROUTER_MODEL, OpenRouterVisionOCR
+from amath_bot.providers.openrouter_vision import (
+    GRADING_MODEL,
+    TRANSCRIPTION_MODEL,
+    OpenRouterVisionOCR,
+)
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 
 API_KEY = "secret-openrouter-key"
@@ -16,10 +21,8 @@ API_KEY = "secret-openrouter-key"
 
 def _ocr_content(**updates: Any) -> str:
     value = {
-        "complete": True,
-        "lines": ["x = 2"],
-        "unclear": [],
-        "confidence": 0.9,
+        "lines": [{"id": 1, "latex": "x = 2"}],
+        "uncertain_tokens": [],
     }
     value.update(updates)
     return json.dumps(value)
@@ -28,6 +31,10 @@ def _ocr_content(**updates: Any) -> str:
 def _grade_content(**updates: Any) -> str:
     value = {
         "total": 99,
+        "final_answer_correct": True,
+        "method_valid": True,
+        "overall_verdict": "correct",
+        "reasoning": "The answer and supporting method are valid.",
         "decisions": [
             {
                 "part": "a",
@@ -70,7 +77,7 @@ async def _adapter(handler: Callable[[httpx.Request], httpx.Response]) -> tuple[
 
 
 @pytest.mark.asyncio
-async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
+async def test_transcribe_sends_pinned_free_vision_request() -> None:
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -83,15 +90,17 @@ async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
     async with client:
         result = await adapter.transcribe(b"png-image")
 
-    assert result == OCRResult(complete=True, lines=("x = 2",), confidence=0.9)
-    assert OPENROUTER_MODEL == "openrouter/free"
+    assert result == OCRResult(lines=({"id": 1, "latex": "x = 2"},))
+    assert TRANSCRIPTION_MODEL == "google/gemma-4-26b-a4b-it:free"
     assert captured["url"] == "https://router.test/v1/chat/completions"
     assert captured["authorization"] == f"Bearer {API_KEY}"
     payload = captured["payload"]
-    assert payload["model"] == "openrouter/free"
+    assert payload["model"] == "google/gemma-4-26b-a4b-it:free"
     assert payload["stream"] is False
     assert payload["temperature"] == 0
-    assert payload["provider"] == {"require_parameters": True}
+    assert payload["max_tokens"] == 1200
+    assert payload["reasoning"] == {"effort": "none"}
+    assert payload["provider"] == {"require_parameters": True, "sort": "throughput"}
     assert payload["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -102,7 +111,10 @@ async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
     }
     content = payload["messages"][0]["content"]
     assert content[0]["type"] == "text"
-    assert "Transcribe only the student's handwritten mathematical working" in content[0]["text"]
+    assert "mathematical transcription system" in content[0]["text"]
+    assert "Do not include a leading equals sign" in content[0]["text"]
+    assert "uncertain_tokens" in content[0]["text"]
+    assert '"alternatives"' in content[0]["text"]
     assert content[1] == {
         "type": "image_url",
         "image_url": {
@@ -113,7 +125,7 @@ async def test_transcribe_sends_openrouter_free_strict_vision_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_propose_grade_sends_all_solution_images_and_recalculates_total() -> None:
+async def test_propose_grade_sends_extracted_text_and_recalculates_total() -> None:
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -124,11 +136,15 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     async with client:
         result = await adapter.propose_grade(
             transcription=("x = 2", "y = 3"),
-            solution_images=(b"first", b"second"),
+            problem_text="Solve x and y.",
+            solution_text="Award M1 and A1.",
             maximum=4,
         )
 
     assert result.total == 3
+    assert captured["temperature"] == 0
+    assert captured["model"] == GRADING_MODEL
+    assert GRADING_MODEL == "liquid/lfm-2.5-2.6b:free"
     assert captured["max_tokens"] == 2200
     assert captured["response_format"]["json_schema"] == {
         "name": "proposed_grade",
@@ -138,11 +154,11 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     content = captured["messages"][0]["content"]
     prompt = content[0]["text"]
     assert "worth exactly 4 marks" in prompt
+    assert "sum of all decision maximum values must equal" in prompt
     assert prompt.endswith("Student OCR:\n1. x = 2\n2. y = 3")
-    assert [item["image_url"]["url"] for item in content[1:]] == [
-        "data:image/png;base64," + base64.b64encode(value).decode("ascii")
-        for value in (b"first", b"second")
-    ]
+    assert "Question text:\nSolve x and y." in prompt
+    assert "Published answer key:\nAward M1 and A1." in prompt
+    assert len(content) == 1
 
 
 @pytest.mark.asyncio
@@ -173,12 +189,43 @@ async def test_grading_invariants(maximum: int, decisions: list[dict[str, Any]])
     async with client:
         with pytest.raises(MarkingPipelineError):
             await adapter.propose_grade(
-                transcription=("line",), solution_images=(b"scheme",), maximum=maximum
+                transcription=("line",),
+                problem_text="problem",
+                solution_text="scheme",
+                maximum=maximum,
             )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [404, 408, 429, 500, 502, 503])
+async def test_grading_rejects_missing_labeled_question_part() -> None:
+    decisions = [
+        {
+            "part": "(a)",
+            "marks_awarded": 1,
+            "maximum": 6,
+            "scheme_evidence": "visible step",
+            "reason": "reason",
+            "student_lines": ["line"],
+            "provider_confidence": 0.8,
+        }
+    ]
+    adapter, client = await _adapter(
+        lambda request: _response(_grade_content(decisions=decisions))
+    )
+
+    async with client:
+        with pytest.raises(MarkingPipelineError, match="omits a labeled"):
+            await adapter.propose_grade(
+                transcription=("line",),
+                problem_text="problem",
+                solution_text="scheme",
+                maximum=6,
+                expected_parts=("a", "b"),
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503])
 async def test_retryable_http_statuses_are_ordinary_pipeline_errors(status: int) -> None:
     adapter, client = await _adapter(
         lambda request: httpx.Response(status, text="sentinel-response-secret")
@@ -207,7 +254,28 @@ async def test_transport_failures_are_ordinary_pipeline_errors(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [400, 401, 403, 422])
+async def test_transcription_has_an_overall_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return _response()
+
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(
+        "amath_bot.providers.openrouter_vision.asyncio.timeout",
+        lambda seconds: original_timeout(0.001 if seconds == 60 else seconds),
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    adapter = OpenRouterVisionOCR(
+        client, api_key=API_KEY, base_url="https://router.test/v1/"
+    )
+    async with client:
+        with pytest.raises(MarkingPipelineError, match="vision OCR failed") as raised:
+            await adapter.transcribe(b"image")
+    assert raised.value.retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
 async def test_operational_statuses_are_safe_configuration_errors(status: int) -> None:
     adapter, client = await _adapter(
         lambda request: httpx.Response(status, text="sentinel-response-secret")
@@ -234,7 +302,7 @@ async def test_operational_statuses_are_safe_configuration_errors(status: int) -
         ),
         _response("not-json"),
         _response(_ocr_content(extra="forbidden")),
-        _response(_ocr_content(confidence=1.1)),
+        _response(_ocr_content(lines=[{"id": 0, "latex": "x"}])),
     ],
     ids=[
         "non-json-envelope",
@@ -246,7 +314,7 @@ async def test_operational_statuses_are_safe_configuration_errors(status: int) -
         "refusal",
         "malformed-content",
         "extra-fields",
-        "invalid-confidence",
+        "invalid-line-id",
     ],
 )
 async def test_malformed_responses_are_ordinary_pipeline_errors(response: httpx.Response) -> None:
@@ -259,7 +327,9 @@ async def test_malformed_responses_are_ordinary_pipeline_errors(response: httpx.
 
 @pytest.mark.asyncio
 async def test_logs_selected_model_without_sensitive_values(caplog: pytest.LogCaptureFixture) -> None:
-    sensitive_content = _ocr_content(lines=["private student content"])
+    sensitive_content = _ocr_content(
+        lines=[{"id": 1, "latex": "private student content"}]
+    )
     adapter, client = await _adapter(
         lambda request: _response(sensitive_content, model="example/free-vision-model")
     )

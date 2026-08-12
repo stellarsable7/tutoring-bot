@@ -177,6 +177,52 @@ async def test_tutor_specified_mark_uses_provider_neutral_audit_wording(
     assert "local" not in review.reason.lower()
 
 
+async def test_tutor_can_requeue_flagged_attempt_for_fresh_vision_pass(
+    session: AsyncSession,
+) -> None:
+    attempt = await add_flagged_attempt(session)
+    attempt.marking_attempts = 4
+    attempt.marking_last_error = "old error"
+    await session.commit()
+    handler = ReviewHandler(
+        tutor_telegram_id=100,
+        session=session,
+        reviews=ReviewService(session),
+        callback_secret="test-secret",
+    )
+
+    result = await handler.reread(FakeMessage(FakeUser(100)))
+
+    assert result.text.startswith("Submission queued for a fresh OCR")
+    await session.refresh(attempt)
+    assert attempt.status == "queued"
+    assert attempt.queued_at is not None
+    assert attempt.marking_attempts == 0
+    assert attempt.marking_last_error is None
+    assert attempt.result_total is None
+    assert attempt.result_maximum is None
+    assert attempt.feedback is None
+    assert attempt.grade_decisions is None
+    assert attempt.review_reasons is None
+    assert attempt.media_expires_at is None
+
+
+async def test_student_cannot_requeue_flagged_attempt(session: AsyncSession) -> None:
+    attempt = await add_flagged_attempt(session)
+    handler = ReviewHandler(
+        tutor_telegram_id=100,
+        session=session,
+        reviews=ReviewService(session),
+        callback_secret="test-secret",
+    )
+
+    result = await handler.reread(FakeMessage(FakeUser(200)))
+
+    assert result.text == "Tutor access required."
+    await session.refresh(attempt)
+    assert attempt.status == "flagged"
+
+
 async def test_student_and_tampered_callbacks_are_rejected(session: AsyncSession) -> None:
     await add_flagged_attempt(session)
     handler = ReviewHandler(

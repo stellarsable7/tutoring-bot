@@ -62,9 +62,10 @@ Before issuing an invite, explain the recorded personal data and AI processing. 
 stop if consent is declined. A tutor must verify each question boundary, marks, objective tags,
 and matching published worked solution; final-answer-only material remains ineligible.
 
-The bot uses OpenRouter's `openrouter/free` router and never automatically switches to paid
-inference. Inference charges are therefore zero, but free-provider capacity, latency, selected
-model, and answer quality are variable. Student images, extracted OCR text, and published
+The bot uses OpenRouter's `google/gemma-4-26b-a4b-it:free` model for transcription and
+`qwen/qwen3-vl-32b-instruct` for grading. Grading is paid inference, so verify current OpenRouter
+pricing and account limits during preflight. Capacity, latency, availability, and answer quality
+are variable. Student images, extracted OCR text, and published
 solutions leave the deployment machine and pass through OpenRouter to a free provider. Those
 providers may log requests or train on them. Review and record the current OpenRouter and selected
 provider data terms outside the student database, disclose them during consent, and do not enrol a

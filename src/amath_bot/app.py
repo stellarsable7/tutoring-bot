@@ -22,8 +22,14 @@ def validate_polling_settings(settings: Settings) -> None:
             "AMATH_TELEGRAM_BOT_TOKEN, AMATH_TUTOR_TELEGRAM_ID, and "
             "AMATH_REVIEW_CALLBACK_SECRET are required"
         )
-    if not settings.openrouter_api_key or not settings.openrouter_api_key.strip():
-        raise ValueError("AMATH_OPENROUTER_API_KEY is required")
+    if not settings.gemini_api_key or not settings.gemini_api_key.strip():
+        raise ValueError("AMATH_GEMINI_API_KEY is required")
+    if not settings.document_ai_project_id or not settings.document_ai_project_id.strip():
+        raise ValueError("AMATH_DOCUMENT_AI_PROJECT_ID is required")
+    if not settings.document_ai_processor_id or not settings.document_ai_processor_id.strip():
+        raise ValueError("AMATH_DOCUMENT_AI_PROCESSOR_ID is required")
+    if not settings.google_service_account_json or not settings.google_service_account_json.strip():
+        raise ValueError("AMATH_GOOGLE_SERVICE_ACCOUNT_JSON is required")
 
 
 def main() -> int:

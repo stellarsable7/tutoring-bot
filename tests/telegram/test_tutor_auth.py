@@ -45,6 +45,7 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
     await handler.help(message)
     await handler.schedule(message, ("Ada", "weekdays", "17"))
     await handler.assign(message, ("Ada",))
+    await handler.test(message, ())
     await handler.pause(message, ("Ada",))
     await handler.resume(message, ("Ada",))
     await handler.remove(message, ("Ada", "CONFIRM"))
@@ -54,6 +55,7 @@ async def test_allowlisted_tutor_can_use_all_commands() -> None:
         "students",
         "schedule",
         "assign",
+        "test",
         "pause",
         "resume",
         "remove",

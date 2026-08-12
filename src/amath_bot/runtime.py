@@ -21,7 +21,8 @@ from amath_bot.jobs.mark_attempt import MarkAttemptJob
 from amath_bot.marking.local_pipeline import LocalVisionPipeline
 from amath_bot.people.service import PeopleService
 from amath_bot.people.tables import TutorRow
-from amath_bot.providers.openrouter_vision import OpenRouterVisionOCR
+from amath_bot.providers.document_ai_transcriber import DocumentAITranscriber
+from amath_bot.providers.gemini_grader import GeminiGrader
 from amath_bot.reviews.service import ReviewService
 from amath_bot.scheduler import DailyAssignmentJob, add_marking_job, create_scheduler
 from amath_bot.settings import Settings
@@ -153,9 +154,15 @@ async def run_polling(settings: Settings) -> None:
     tutor_telegram_id = settings.tutor_telegram_id
     if settings.review_callback_secret is None or len(settings.review_callback_secret) < 32:
         raise ValueError("review callback secret must be at least 32 characters")
-    if settings.openrouter_api_key is None or not settings.openrouter_api_key.strip():
-        raise ValueError("AMATH_OPENROUTER_API_KEY is required")
-    openrouter_api_key = settings.openrouter_api_key
+    if settings.gemini_api_key is None or not settings.gemini_api_key.strip():
+        raise ValueError("AMATH_GEMINI_API_KEY is required")
+    gemini_api_key = settings.gemini_api_key
+    if not settings.document_ai_project_id or not settings.document_ai_project_id.strip():
+        raise ValueError("AMATH_DOCUMENT_AI_PROJECT_ID is required")
+    if not settings.document_ai_processor_id or not settings.document_ai_processor_id.strip():
+        raise ValueError("AMATH_DOCUMENT_AI_PROCESSOR_ID is required")
+    if not settings.google_service_account_json or not settings.google_service_account_json.strip():
+        raise ValueError("AMATH_GOOGLE_SERVICE_ACCOUNT_JSON is required")
 
     engine = None
     bot: Bot | None = None
@@ -167,10 +174,17 @@ async def run_polling(settings: Settings) -> None:
         scoped = async_scoped_session(factory, scopefunc=asyncio.current_task)
         bot = create_bot(settings.telegram_bot_token)
         http_client = httpx.AsyncClient(timeout=180)
-        vision = OpenRouterVisionOCR(
+        transcriber = DocumentAITranscriber(
             http_client,
-            api_key=openrouter_api_key,
-            base_url=settings.openrouter_url,
+            project_id=settings.document_ai_project_id,
+            location=settings.document_ai_location,
+            processor_id=settings.document_ai_processor_id,
+            service_account_json=settings.google_service_account_json,
+        )
+        grader = GeminiGrader(
+            http_client,
+            api_key=gemini_api_key,
+            base_url=settings.gemini_url,
         )
         identity = await bot.get_me()
         if identity.username is None:
@@ -218,6 +232,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="students", description="List enrolled students"),
                     BotCommand(command="schedule", description="Set a student's schedule"),
                     BotCommand(command="assign", description="Assign a question"),
+                    BotCommand(command="test", description="Resend Diego's latest question"),
                     BotCommand(command="pause", description="Pause a student"),
                     BotCommand(command="resume", description="Resume a student"),
                     BotCommand(command="remove", description="Permanently remove a student"),
@@ -225,6 +240,7 @@ async def run_polling(settings: Settings) -> None:
                     BotCommand(command="clearstudent", description="Clear a student's recent chat"),
                     BotCommand(command="progress", description="Show student progress"),
                     BotCommand(command="review", description="Review flagged marking"),
+                    BotCommand(command="reread", description="Run OCR again for current review"),
                     BotCommand(command="mark", description="Specify a reviewed mark"),
                     BotCommand(command="submit", description="Submit uploaded working for review"),
                 ]
@@ -244,7 +260,8 @@ async def run_polling(settings: Settings) -> None:
                     pipeline = LocalVisionPipeline(
                         marking_session,
                         bot,
-                        vision,
+                        transcriber,
+                        grader,
                     )
                     processed = await MarkAttemptJob(
                         marking_session,

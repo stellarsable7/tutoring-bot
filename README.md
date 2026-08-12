@@ -56,9 +56,11 @@ ID from a trusted ID bot or Telegram API update. Set a random callback secret of
 characters. Create an OpenRouter API key and set `AMATH_OPENROUTER_API_KEY`. The bot refuses to
 start when this key is missing. Never commit `.env`.
 
-The marking pipeline uses OpenRouter's `openrouter/free` router. It never automatically switches
-to paid inference, so inference charges are zero, but free-provider capacity, latency, available
-model, and answer quality can vary. Student images, OCR text, and published solutions leave the
+The marking pipeline uses `google/gemma-4-26b-a4b-it:free` for transcription and
+`qwen/qwen3-vl-32b-instruct` for grading through OpenRouter. Grading is paid inference; review
+current OpenRouter pricing before deployment. Capacity, latency, availability, and answer quality
+can vary. Student images, OCR text, and
+published solutions leave the
 deployment machine and are sent through OpenRouter to the selected free provider. Free providers
 may log requests or use them for training; review the current provider policies and disclose this
 before enrolment. Every proposed grade must be reviewed by the tutor before it becomes final.
@@ -97,6 +99,8 @@ single-use `/start` invite and must consent before an account is created.
 - `/clearstudent "NAME" CONFIRM` does the same in an enrolled student's bot chat.
 - `/progress NAME` shows learning progress.
 - `/review` opens the next flagged marking review.
+- `/reread` reruns OCR and provisional grading for the current flagged submission when working
+  was missed or transcribed incorrectly.
 
 The bot supports either polling or webhook deployment through the aiogram
 dispatcher. The assignment scheduler ticks once per minute in `Asia/Singapore` and uses database
@@ -104,6 +108,10 @@ uniqueness constraints to prevent duplicate daily assignments. Independently, th
 wakes every 3 seconds. Transient failures persist retry deadlines of 3, 10, 30, 30, then 60
 seconds; further attempts continue every 60 seconds indefinitely. Authentication or configuration
 failures retry hourly. These deadlines survive process restarts.
+Successful OCR is persisted before provisional grading. A grading retry therefore reuses the
+saved transcription instead of downloading and sending the student's image through OCR again.
+Active OCR and grading stages use a five-minute database lease so work interrupted by a restart
+or hung process can be reclaimed automatically.
 Source attribution and solution metadata are retained for the tutor and are not
 included in student-facing message text.
 

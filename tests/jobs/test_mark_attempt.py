@@ -14,10 +14,13 @@ from sqlalchemy.ext.asyncio import (
 from amath_bot.catalogue.tables import SourceQuestionRow
 from amath_bot.db import Base
 from amath_bot.jobs.mark_attempt import (
+    PROCESSING_LEASE,
     MarkAttemptJob,
     MarkingConfigurationError,
     MarkingOutcome,
     MarkingPipelineError,
+    OCRValidationError,
+    RateLimitError,
     retry_delay,
 )
 from amath_bot.submissions.tables import AttemptRow
@@ -138,13 +141,69 @@ async def test_claim_next_selects_only_due_queued_rows_in_id_order(
             async with factory() as observer_session:
                 observer = await observer_session.get(AttemptRow, claimed.id)
                 assert observer is not None
-                assert observer.status == "processing"
+                assert observer.status == "transcribing"
 
         assert claimed_ids == [null_due.id, past_due.id, exact_due.id]
         await session.refresh(future)
         await session.refresh(nonqueued)
         assert future.status == "queued"
         assert nonqueued.status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_grading_failure_retries_from_persisted_transcription(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session, status="transcribed")
+        attempt.ocr_transcription = ["x = 2"]
+        await session.commit()
+
+        await job(
+            session,
+            FailingPipeline(
+                MarkingPipelineError("grading unavailable", retry_status="transcribed")
+            ),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.status == "transcribed"
+        assert attempt.ocr_transcription == ["x = 2"]
+        assert attempt.marking_attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_expired_stage_lease_is_reclaimed_without_losing_ocr(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(
+            session,
+            status="grading",
+            retry_at=now - timedelta(microseconds=1),
+        )
+        attempt.ocr_transcription = ["persisted line"]
+        await session.commit()
+        worker = job(
+            session,
+            SuccessfulPipeline(
+                MarkingOutcome(total=1, maximum=1, feedback=(), review_reasons=("review",))
+            ),
+            now,
+        )
+
+        claimed = await worker._claim_next(now)
+
+        assert claimed is not None
+        assert claimed.id == attempt.id
+        assert claimed.status == "grading"
+        assert claimed.ocr_transcription == ["persisted line"]
+        assert claimed.marking_retry_at == now + PROCESSING_LEASE
 
 
 @pytest.mark.asyncio
@@ -190,7 +249,7 @@ async def test_transient_failures_persist_exact_retry_schedule_across_sessions(
 
 
 @pytest.mark.asyncio
-async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEngine) -> None:
+async def test_configuration_failure_stops_automatic_retry(engine: AsyncEngine) -> None:
     now = datetime(2026, 8, 8, 12, tzinfo=UTC)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -202,10 +261,53 @@ async def test_configuration_failure_retries_in_exactly_one_hour(engine: AsyncEn
             now,
         ).run_pending()
         await session.refresh(attempt)
-        # SQLite returns timezone-naive DateTime values even for timezone=True columns.
-        assert attempt.marking_retry_at == (now + timedelta(hours=1)).replace(tzinfo=None)
+        assert attempt.status == "configuration_failed"
+        assert attempt.marking_retry_at is None
         assert attempt.marking_attempts == 1
         assert attempt.marking_last_error == "provider is not configured"
+
+
+@pytest.mark.asyncio
+async def test_ocr_validation_failure_stores_diagnostics_without_retry(
+    engine: AsyncEngine,
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session)
+        await session.commit()
+
+        await job(
+            session,
+            FailingPipeline(OCRValidationError("forbidden prose", '{"lines":[]}')),
+            now,
+        ).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.status == "ocr_validation_failed"
+        assert attempt.marking_attempts == 1
+        assert attempt.marking_retry_at is None
+        assert attempt.ocr_raw_response == '{"lines":[]}'
+        assert attempt.ocr_validation_error == "forbidden prose"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_uses_exponential_backoff_with_jitter(
+    engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 8, 8, 12, tzinfo=UTC)
+    monkeypatch.setattr("amath_bot.jobs.mark_attempt.random.uniform", lambda low, high: high)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        attempt = add_attempt(session, attempts=2)
+        await session.commit()
+
+        await job(session, FailingPipeline(RateLimitError("rate limited")), now).run_pending()
+        await session.refresh(attempt)
+
+        assert attempt.marking_attempts == 3
+        # Third failure: 3 * 2^2 seconds, plus the maximum 25% jitter.
+        assert attempt.marking_retry_at == (now + timedelta(seconds=15)).replace(tzinfo=None)
 
 
 @pytest.mark.asyncio
@@ -231,7 +333,7 @@ async def test_configuration_failure_logs_only_bounded_safe_diagnostic(
 
     assert len(caplog.records) == 1
     assert caplog.records[0].getMessage() == (
-        f"Marking configuration failure; retrying in one hour: {diagnostic[:500]}"
+        f"Marking configuration failure; automatic retry disabled: {diagnostic[:500]}"
     )
     assert unlogged_suffix not in caplog.text
 

@@ -23,6 +23,8 @@ def test_settings_default_to_openrouter_api() -> None:
 
     assert settings.openrouter_api_key is None
     assert settings.openrouter_url == "https://openrouter.ai/api/v1"
+    assert settings.gemini_api_key is None
+    assert settings.gemini_url == "https://generativelanguage.googleapis.com/v1beta"
 
 
 def test_settings_do_not_expose_removed_ollama_or_interval_fields() -> None:
@@ -39,27 +41,23 @@ def polling_settings(**overrides: object) -> Settings:
         "tutor_telegram_id": 123,
         "review_callback_secret": "callback-secret",
         "openrouter_api_key": "openrouter-key",
+        "gemini_api_key": "gemini-key",
+        "document_ai_project_id": "project",
+        "document_ai_processor_id": "processor",
+        "google_service_account_json": "{}",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
 
-def test_polling_settings_reject_missing_openrouter_api_key() -> None:
-    settings = polling_settings(openrouter_api_key=None)
-
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
-        app.validate_polling_settings(settings)
+def test_polling_settings_do_not_require_openrouter_api_key() -> None:
+    app.validate_polling_settings(polling_settings(openrouter_api_key=None))
 
 
-def test_polling_settings_reject_whitespace_openrouter_api_key() -> None:
-    settings = polling_settings(openrouter_api_key="   \t")
-
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
-        app.validate_polling_settings(settings)
-
-
-def test_polling_settings_accept_valid_openrouter_api_key() -> None:
-    app.validate_polling_settings(polling_settings())
+@pytest.mark.parametrize("api_key", [None, "", "   "])
+def test_polling_settings_reject_missing_gemini_key(api_key: str | None) -> None:
+    with pytest.raises(ValueError, match="AMATH_GEMINI_API_KEY"):
+        app.validate_polling_settings(polling_settings(gemini_api_key=api_key))
 
 
 def test_main_dry_run_does_not_require_openrouter_api_key(monkeypatch) -> None:  # type: ignore[no-untyped-def]

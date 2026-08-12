@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from aiogram import F, Router
@@ -198,6 +199,45 @@ class ReviewHandler:
             else "Mark saved; student notification is pending."
         )
 
+    async def reread(self, message: TutorMessage | Message) -> TutorReply:
+        """Requeue the oldest flagged attempt for a fresh OCR and grading pass."""
+        if not self._is_tutor(message):
+            return TutorReply("Tutor access required.")
+        attempt = await self._session.scalar(
+            select(AttemptRow)
+            .where(AttemptRow.status == "flagged")
+            .order_by(AttemptRow.created_at, AttemptRow.id)
+            .limit(1)
+            .with_for_update()
+        )
+        if attempt is None:
+            return TutorReply("No submission is awaiting review.")
+        attempt.status = "queued"
+        attempt.queued_at = datetime.now(UTC)
+        attempt.marking_attempts = 0
+        attempt.marking_retry_at = None
+        attempt.marking_last_error = None
+        attempt.ocr_transcription = None
+        attempt.ocr_unclear = None
+        attempt.ocr_confidence = None
+        attempt.ocr_complete = None
+        attempt.ocr_raw_response = None
+        attempt.ocr_validation_error = None
+        attempt.ocr_verification = None
+        attempt.result_total = None
+        attempt.result_maximum = None
+        attempt.feedback = None
+        attempt.grade_decisions = None
+        attempt.review_reasons = None
+        attempt.media_expires_at = None
+        attempt.finalized_at = None
+        attempt.notified_at = None
+        await self._session.commit()
+        return TutorReply(
+            "Submission queued for a fresh OCR and vision pass. "
+            "I’ll notify you when the new reading is ready; then use /review."
+        )
+
     def _authorize(self, message: TutorMessage | Message | CallbackQuery, token: str) -> int:
         if not self._is_tutor(message):
             raise InvalidReviewCallback("tutor access required")
@@ -295,9 +335,16 @@ def create_review_router(handler: ReviewHandler) -> Router:
             ]
         )
         await message.answer(
-            text + "\nTo edit directly: /mark SCORE feedback",
+            text
+            + "\nTo edit directly: /mark SCORE feedback"
+            + "\nIf the OCR missed or misread working: /reread",
             reply_markup=keyboard,
         )
+
+    @router.message(Command("reread"))
+    async def reread(message: Message) -> None:
+        reply = await handler.reread(message)
+        await message.answer(reply.text)
 
     @router.message(Command("mark"))
     async def specify_mark(message: Message) -> None:

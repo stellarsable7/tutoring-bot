@@ -8,7 +8,7 @@ import httpx
 import pytest
 from PIL import Image, ImageDraw
 
-from amath_bot.providers.openrouter_vision import OpenRouterVisionOCR
+from amath_bot.providers.openrouter_vision import OpenRouterGrader, OpenRouterTranscriber
 from amath_bot.providers.vision_models import ProposedGrade
 
 pytestmark = [
@@ -52,12 +52,14 @@ async def test_openrouter_free_transcribes_and_applies_published_scheme() -> Non
     api_key = os.environ["AMATH_OPENROUTER_API_KEY"]
     base_url = os.getenv("AMATH_OPENROUTER_URL", "https://openrouter.ai/api/v1")
     async with httpx.AsyncClient(timeout=180) as client:
-        provider = OpenRouterVisionOCR(client, api_key=api_key, base_url=base_url)
-        transcription = await provider.transcribe(_synthetic_working())
+        transcriber = OpenRouterTranscriber(client, api_key=api_key, base_url=base_url)
+        grader = OpenRouterGrader(client, api_key=api_key, base_url=base_url)
+        transcription = await transcriber.transcribe(_synthetic_working())
         maximum = _published_maximum()
-        proposed = await provider.propose_grade(
+        proposed = await grader.propose_grade(
             transcription=transcription.lines,
-            solution_images=_solution_pages(),
+            problem_text="Solve the stated question.",
+            solution_text="The demonstrated correct method earns the available marks.",
             maximum=maximum,
         )
 

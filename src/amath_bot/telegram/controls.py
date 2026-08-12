@@ -40,6 +40,7 @@ class DatabaseTutorControls:
             "students": self._students,
             "schedule": self._schedule,
             "assign": self._assign,
+            "test": self._test,
             "pause": self._pause,
             "resume": self._resume,
             "remove": self._remove,
@@ -134,6 +135,42 @@ class DatabaseTutorControls:
         self._session.add(row)
         await self._session.commit()
         return f"Question queued for {student.display_name}."
+
+    async def _test(self, args: tuple[str, ...]) -> str:
+        if args:
+            raise ValueError("usage: /test")
+        student = await self._student("Diego")
+        latest = await self._session.scalar(
+            select(AssignmentRow)
+            .where(AssignmentRow.student_id == student.id)
+            .order_by(AssignmentRow.id.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise ValueError("Diego has no previous question to resend")
+        today = datetime.now(ZoneInfo(self._timezone)).date()
+        existing_count = len(
+            tuple(
+                await self._session.scalars(
+                    select(AssignmentRow.id).where(
+                        AssignmentRow.student_id == student.id,
+                        AssignmentRow.scheduled_date == today,
+                    )
+                )
+            )
+        )
+        self._session.add(
+            AssignmentRow(
+                student_id=student.id,
+                source_question_id=latest.source_question_id,
+                scheduled_date=today,
+                sequence_number=existing_count + 1,
+                status="pending",
+                selection_reason="tutor requested /test resend of Diego's latest question",
+            )
+        )
+        await self._session.commit()
+        return "Latest question queued again for Diego."
 
     async def _pause(self, args: tuple[str, ...]) -> str:
         if len(args) != 1:

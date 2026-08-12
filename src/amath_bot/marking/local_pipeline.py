@@ -1,7 +1,7 @@
 import asyncio
+import re
 from io import BytesIO
-from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import fitz  # type: ignore[import-untyped]
 from aiogram import Bot
@@ -10,30 +10,49 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from amath_bot.assignments.tables import AssignmentRow
 from amath_bot.catalogue.tables import SourceQuestionRow
-from amath_bot.jobs.mark_attempt import MarkingOutcome, MarkingPipelineError
+from amath_bot.jobs.mark_attempt import (
+    MarkingConfigurationError,
+    MarkingOutcome,
+    MarkingPipelineError,
+    MarkingValidationError,
+    RateLimitError,
+)
+from amath_bot.marking.latex_verification import verify_latex_lines
 from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 from amath_bot.submissions.tables import AttemptMediaRow, AttemptRow
 
 
-class VisionOCR(Protocol):
+class VisionTranscriber(Protocol):
     async def transcribe(self, image: bytes) -> OCRResult: ...
 
+
+class TextGrader(Protocol):
     async def propose_grade(
         self,
         *,
         transcription: tuple[str, ...],
-        solution_images: tuple[bytes, ...],
+        problem_text: str,
+        solution_text: str,
         maximum: int,
+        expected_parts: tuple[str, ...] = (),
+        symbolic_verification: tuple[dict[str, Any], ...] = (),
     ) -> ProposedGrade: ...
 
 
 class LocalVisionPipeline:
     """Vision OCR with mandatory tutor review before a mark reaches a student."""
 
-    def __init__(self, session: AsyncSession, bot: Bot, ocr: VisionOCR) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        bot: Bot,
+        transcriber: VisionTranscriber,
+        grader: TextGrader | None = None,
+    ) -> None:
         self._session = session
         self._bot = bot
-        self._ocr = ocr
+        self._transcriber = transcriber
+        self._grader = grader if grader is not None else cast(TextGrader, transcriber)
 
     async def mark(self, attempt_id: int) -> MarkingOutcome:
         row = (
@@ -46,43 +65,95 @@ class LocalVisionPipeline:
         ).one_or_none()
         if row is None:
             raise MarkingPipelineError("attempt or assigned question was not found")
-        _attempt, question = row
-        media = tuple(
-            await self._session.scalars(
-                select(AttemptMediaRow)
-                .where(AttemptMediaRow.attempt_id == attempt_id)
-                .order_by(AttemptMediaRow.position)
+        attempt, question = row
+        if attempt.ocr_transcription is None:
+            media = tuple(
+                await self._session.scalars(
+                    select(AttemptMediaRow)
+                    .where(AttemptMediaRow.attempt_id == attempt_id)
+                    .order_by(AttemptMediaRow.position)
+                )
             )
-        )
-        if not media:
-            raise MarkingPipelineError("attempt contains no media")
+            if not media:
+                raise MarkingPipelineError("attempt contains no media")
 
-        results: list[OCRResult] = []
-        for item in media:
-            downloaded = BytesIO()
-            await self._bot.download(item.telegram_file_id, destination=downloaded)
-            payload = downloaded.getvalue()
-            pages = self._pdf_pages(payload) if item.media_kind == "pdf" else (payload,)
-            for page in pages:
-                results.append(await self._ocr.transcribe(page))
+            results: list[OCRResult] = []
+            for item in media:
+                downloaded = BytesIO()
+                await self._bot.download(item.telegram_file_id, destination=downloaded)
+                payload = downloaded.getvalue()
+                pages = self._pdf_pages(payload) if item.media_kind == "pdf" else (payload,)
+                for page in pages:
+                    results.append(await self._transcriber.transcribe(page))
 
-        lines = [line for result in results for line in result.lines]
-        unclear = [detail for result in results for detail in result.unclear]
-        confidence = min((result.confidence for result in results), default=0.0)
+            ocr_lines = [line for result in results for line in result.lines]
+            lines = [f"{index}. {line.latex}" for index, line in enumerate(ocr_lines, 1)]
+            unclear = [
+                (
+                    f"Line {detail.line_id}: uncertain token {detail.token}; "
+                    f"alternatives: {', '.join(detail.alternatives) or 'none supplied'}"
+                )
+                for result in results
+                for detail in result.uncertain_tokens
+            ]
+            confidence = 1.0 if not unclear else 0.5
+            complete = not unclear
+            attempt.ocr_transcription = [
+                {"id": index, "latex": line.latex}
+                for index, line in enumerate(ocr_lines, 1)
+            ]
+            attempt.ocr_verification = await asyncio.to_thread(
+                verify_latex_lines, attempt.ocr_transcription
+            )
+            attempt.ocr_raw_response = None
+            attempt.ocr_validation_error = None
+            attempt.ocr_unclear = unclear
+            attempt.ocr_confidence = confidence
+            attempt.ocr_complete = complete
+            attempt.status = "transcribed"
+            await self._session.commit()
+        else:
+            lines = self._stored_lines(attempt.ocr_transcription)
+            unclear = list(attempt.ocr_unclear or [])
+            confidence = attempt.ocr_confidence or 0.0
+            complete = bool(attempt.ocr_complete)
+
+        attempt.status = "grading"
+        await self._session.commit()
         proposed: ProposedGrade | None = None
         if question.solution_asset_path:
             try:
-                solution_payload = await asyncio.to_thread(
-                    Path(question.solution_asset_path).read_bytes
+                problem_text, solution_text = await asyncio.gather(
+                    asyncio.to_thread(self._asset_text, question.asset_path),
+                    asyncio.to_thread(self._asset_text, question.solution_asset_path),
                 )
-            except OSError as error:
+            except (OSError, fitz.FileDataError, RuntimeError) as error:
                 raise MarkingPipelineError("published solution asset is unavailable") from error
-            solution_images = self._pdf_pages(solution_payload)
-            proposed = await self._ocr.propose_grade(
-                transcription=tuple(lines),
-                solution_images=solution_images,
-                maximum=question.marks,
-            )
+            try:
+                proposed = await self._grader.propose_grade(
+                    transcription=tuple(lines),
+                    problem_text=problem_text,
+                    solution_text=solution_text,
+                    maximum=question.marks,
+                    expected_parts=await asyncio.to_thread(
+                        self._question_parts, question.asset_path
+                    ),
+                    symbolic_verification=tuple(attempt.ocr_verification or ()),
+                )
+            except MarkingConfigurationError as error:
+                raise MarkingConfigurationError(
+                    error.diagnostic, retry_status="grading_configuration_failed"
+                ) from error
+            except MarkingValidationError as error:
+                raise MarkingValidationError(
+                    error.diagnostic, retry_status="grading_validation_failed"
+                ) from error
+            except RateLimitError as error:
+                raise RateLimitError(error.diagnostic, retry_status="transcribed") from error
+            except MarkingPipelineError as error:
+                raise MarkingPipelineError(
+                    error.diagnostic, retry_status="transcribed"
+                ) from error
             unclear.extend(proposed.unclear)
         decisions = (
             tuple(item.model_dump() for item in proposed.decisions)
@@ -91,13 +162,13 @@ class LocalVisionPipeline:
                 {
                     "student_lines": lines,
                     "provider_confidence": confidence,
-                    "ocr_complete": all(result.complete for result in results),
+                    "ocr_complete": complete,
                     "unclear": unclear,
                 },
             )
         )
         reasons = ["Tutor approval is required for AI-generated marks."]
-        if unclear or not all(result.complete for result in results):
+        if unclear or not complete:
             description = "; ".join(unclear) or "The model could not read all of the working."
             reasons.append(f"Tutor clarification required: {description}")
         if proposed is None:
@@ -126,3 +197,31 @@ class LocalVisionPipeline:
             )
         except (fitz.FileDataError, RuntimeError) as error:
             raise MarkingPipelineError("submitted PDF is unreadable") from error
+
+    @staticmethod
+    def _question_parts(asset_path: str | None) -> tuple[str, ...]:
+        if not asset_path:
+            return ()
+        try:
+            with fitz.open(asset_path) as document:
+                text = "\n".join(page.get_text() for page in document)
+        except (OSError, fitz.FileDataError, RuntimeError):
+            return ()
+        return tuple(dict.fromkeys(re.findall(r"\(([a-z])\)", text, flags=re.IGNORECASE)))
+
+    @staticmethod
+    def _asset_text(asset_path: str | None) -> str:
+        if not asset_path:
+            return ""
+        with fitz.open(asset_path) as document:
+            return "\n".join(page.get_text() for page in document).strip()
+
+    @staticmethod
+    def _stored_lines(stored: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for index, value in enumerate(stored, 1):
+            if isinstance(value, dict) and isinstance(value.get("latex"), str):
+                lines.append(f"{value.get('id', index)}. {value['latex']}")
+            else:
+                lines.append(str(value))
+        return lines

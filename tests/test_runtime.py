@@ -141,7 +141,7 @@ async def test_scoped_session_is_removed_after_handler_failure() -> None:
 
 
 @pytest.mark.parametrize("api_key", [None, "", "   ", "\t\n"])
-async def test_run_polling_rejects_missing_openrouter_key_before_startup(
+async def test_run_polling_rejects_missing_gemini_key_before_startup(
     monkeypatch: pytest.MonkeyPatch, api_key: str | None
 ) -> None:
     engine_created = False
@@ -156,10 +156,10 @@ async def test_run_polling_rejects_missing_openrouter_key_before_startup(
         telegram_bot_token="token",
         tutor_telegram_id=1,
         review_callback_secret="x" * 32,
-        openrouter_api_key=api_key,
+        gemini_api_key=api_key,
     )
 
-    with pytest.raises(ValueError, match="AMATH_OPENROUTER_API_KEY"):
+    with pytest.raises(ValueError, match="AMATH_GEMINI_API_KEY"):
         await runtime.run_polling(settings)
 
     assert engine_created is False
@@ -197,11 +197,17 @@ async def test_http_client_is_closed_when_bot_startup_fails(
     monkeypatch.setattr(runtime, "async_sessionmaker", lambda *args, **kwargs: object())
     monkeypatch.setattr(runtime, "async_scoped_session", lambda *args, **kwargs: object())
     monkeypatch.setattr(runtime, "create_bot", lambda token: FakeBot())
+    monkeypatch.setattr(runtime, "DocumentAITranscriber", lambda *args, **kwargs: object())
+    monkeypatch.setattr(runtime, "GeminiGrader", lambda *args, **kwargs: object())
     settings = Settings(
         telegram_bot_token="token",
         tutor_telegram_id=1,
         review_callback_secret="x" * 32,
         openrouter_api_key="key",
+        gemini_api_key="gemini-key",
+        document_ai_project_id="project",
+        document_ai_processor_id="processor",
+        google_service_account_json="{}",
     )
 
     with pytest.raises(RuntimeError, match="startup failed"):
@@ -218,9 +224,9 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
     callback = None
     marking_started = asyncio.Event()
     daily_started = asyncio.Event()
-    provider_arguments: tuple[object, str, str] | None = None
-    provider_created: object | None = None
-    pipeline_arguments: tuple[object, object, object] | None = None
+    provider_arguments: list[tuple[object, ...]] = []
+    providers_created: list[object] = []
+    pipeline_arguments: tuple[object, object, object, object] | None = None
 
     class PollingStopped(RuntimeError):
         pass
@@ -313,15 +319,17 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
             assert self.daily_task is not None
             self.daily_task.cancel()
 
-    def make_provider(client: object, *, api_key: str, base_url: str) -> object:
-        nonlocal provider_arguments, provider_created
-        provider_arguments = (client, api_key, base_url)
-        provider_created = object()
-        return provider_created
+    def make_provider(client: object, **kwargs: str) -> object:
+        provider_arguments.append((client, *kwargs.values()))
+        provider = object()
+        providers_created.append(provider)
+        return provider
 
-    def make_pipeline(session: object, bot: object, provider: object) -> object:
+    def make_pipeline(
+        session: object, bot: object, transcriber: object, grader: object
+    ) -> object:
         nonlocal pipeline_arguments
-        pipeline_arguments = (session, bot, provider)
+        pipeline_arguments = (session, bot, transcriber, grader)
         return object()
 
     class FakeMarkAttemptJob:
@@ -356,7 +364,8 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
 
     monkeypatch.setattr(runtime, "create_scheduler", make_scheduler)
     monkeypatch.setattr(runtime, "add_marking_job", register_marking_job)
-    monkeypatch.setattr(runtime, "OpenRouterVisionOCR", make_provider)
+    monkeypatch.setattr(runtime, "DocumentAITranscriber", make_provider)
+    monkeypatch.setattr(runtime, "GeminiGrader", make_provider)
     monkeypatch.setattr(runtime, "LocalVisionPipeline", make_pipeline)
     monkeypatch.setattr(runtime, "MarkAttemptJob", FakeMarkAttemptJob)
     async def daily_run() -> object:
@@ -388,17 +397,26 @@ async def test_runtime_registers_openrouter_marking_with_shared_client_and_fresh
         review_callback_secret="x" * 32,
         openrouter_api_key=" secret-key ",
         openrouter_url="https://router.test/v1",
+        gemini_api_key=" gemini-key ",
+        gemini_url="https://gemini.test/v1beta",
+        document_ai_project_id="project",
+        document_ai_processor_id="processor",
+        google_service_account_json="{}",
     )
 
     with pytest.raises(PollingStopped, match="done"):
         await runtime.run_polling(settings)
 
-    assert provider_arguments is not None
-    client, api_key, base_url = provider_arguments
-    assert isinstance(client, FakeClient)
-    assert api_key == " secret-key "
-    assert base_url == "https://router.test/v1"
-    assert pipeline_arguments == (sessions[2], bot, provider_created)
+    assert len(provider_arguments) == 2
+    assert all(isinstance(arguments[0], FakeClient) for arguments in provider_arguments)
+    assert provider_arguments[0][1:] == (
+        "project",
+        "us",
+        "processor",
+        "{}",
+    )
+    assert provider_arguments[1][1:] == (" gemini-key ", "https://gemini.test/v1beta")
+    assert pipeline_arguments == (sessions[2], bot, *providers_created)
     assert len(sessions) == 3
     assert events[0] == "scheduler-stopped"
     assert events.index("callback-unwound") < events.index("scheduler-session-exited")
