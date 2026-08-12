@@ -56,9 +56,9 @@ jobs:
       - name: Install deployment script
         run: |
           gcloud compute scp --tunnel-through-iap --zone="$ZONE" \
-            scripts/deploy_gcp_vm.sh "$VM_NAME:/tmp/deploy_gcp_vm.sh"
+            scripts/deploy_gcp_vm.sh "$VM_NAME:deploy_gcp_vm-$GITHUB_SHA.sh"
           gcloud compute ssh --tunnel-through-iap --zone="$ZONE" "$VM_NAME" --command \
-            "sudo install -o root -g root -m 0755 /tmp/deploy_gcp_vm.sh /usr/local/sbin/deploy-amath-bot"
+            "sudo install -o root -g root -m 0755 deploy_gcp_vm-$GITHUB_SHA.sh /usr/local/sbin/deploy-amath-bot && rm deploy_gcp_vm-$GITHUB_SHA.sh"
       - name: Deploy immutable image
         run: |
           gcloud compute ssh --tunnel-through-iap --zone="$ZONE" "$VM_NAME" --command \
