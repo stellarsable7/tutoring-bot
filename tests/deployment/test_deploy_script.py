@@ -21,3 +21,9 @@ def test_deploy_script_rejects_images_outside_production_registry() -> None:
 
     assert result.returncode == 2
     assert result.stderr == "refusing unexpected image reference\n"
+
+
+def test_cleanup_only_removes_environment_from_top_level_shell() -> None:
+    contents = SCRIPT.read_text()
+
+    assert '"${BASH_SUBSHELL:-0}" -eq 0' in contents

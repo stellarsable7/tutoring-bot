@@ -12,7 +12,6 @@ readonly STATE_DIR="/var/lib/amath-bot"
 readonly ENV_FILE="/run/amath-bot.env"
 readonly PREVIOUS_IMAGE_FILE="$STATE_DIR/previous-image"
 readonly CURRENT_IMAGE_FILE="$STATE_DIR/current-image"
-readonly MAIN_PROCESS_ID="$BASHPID"
 
 case "$IMAGE_REFERENCE" in
   asia-southeast1-docker.pkg.dev/chloe-tutoring-bot/amath-bot/amath-bot@sha256:*) ;;
@@ -33,7 +32,7 @@ secret() {
 }
 
 cleanup() {
-  if [[ "$BASHPID" == "$MAIN_PROCESS_ID" ]]; then
+  if [[ "${BASH_SUBSHELL:-0}" -eq 0 ]]; then
     rm -f "$ENV_FILE"
   fi
 }
