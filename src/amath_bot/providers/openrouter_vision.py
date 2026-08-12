@@ -119,21 +119,30 @@ class _OpenRouterProvider:
 class OpenRouterTranscriber(_OpenRouterProvider):
     async def transcribe(self, image: bytes) -> OCRResult:
         prompt = (
-            "You are a mathematical-symbol transcriber. Speak mathematically: convert the student's "
-            "written mathematics into LaTeX expressions only. Transcribe the handwritten working in "
-            "reading order. "
-            "Do not solve, correct, simplify, or infer missing work. Split every distinct written "
-            "equality or transformation into its own numbered line, even when several appear on one "
-            "visual row. Every latex value must be a mathematically valid LaTeX expression that our "
-            "server can verify before grading. Use standard commands such as \\frac, \\sqrt, \\sin, "
-            "\\cos, \\tan, and \\csc, with balanced braces. Do not include prose, explanations, "
-            "comments, corrections, error notes, markdown, display-math delimiters, or \\text blocks "
-            "inside latex. Preserve exactly what is written. If a symbol cannot be transcribed into "
-            "valid LaTeX with confidence, put that token in uncertain_tokens instead of guessing or "
-            "commenting. Return JSON with exactly: lines, an array of objects containing "
-            "id (consecutive positive integer starting at 1) and latex (string); and uncertain_tokens, "
-            "an array naming every unreadable or ambiguous token. Use an empty array when none are "
-            "uncertain."
+            "You are a mathematical transcription system.\n\n"
+            "Transcribe the student's handwritten mathematical working in reading order. "
+            "Do not solve, correct, simplify, grade, or explain the work.\n\n"
+            "SEMANTIC NORMALISATION\n"
+            "Convert handwritten mathematical notation into standard LaTeX without changing its "
+            "mathematical meaning. For example:\n- cosec x → \\csc{x}\n- cot x → \\cot{x}\n"
+            "- cos²x → \\cos^{2}{x}\n\nLINE RULES\n"
+            "1. Return one mathematical expression for each stage of the student's working.\n"
+            "2. Do not include a leading equals sign in a line.\n"
+            "3. If the student writes only '= expression', store only 'expression'.\n"
+            "4. Exclude labels such as RHS, LHS, hence, therefore, and working annotations from the "
+            "latex field.\n"
+            "5. Preserve mathematical mistakes exactly. Normalise notation only; do not correct the "
+            "mathematics.\n"
+            "6. Use explicit braces and fractions: \\sin{x}, \\cos{x}, \\cot{x}, \\frac{a}{b}.\n"
+            "7. Do not use \\text, Markdown, dollar signs, or display-math delimiters.\n"
+            "8. Return raw JSON only. Do not wrap it in a code fence.\n\nUNCERTAINTY\n"
+            "If a token is genuinely unreadable:\n- make the best literal transcription that keeps "
+            "the line syntactically valid;\n- record the line ID, token and alternatives in "
+            "uncertain_tokens;\n- do not invent an explanation.\n\n"
+            "Return exactly this JSON structure:\n"
+            '{"lines":[{"id":1,"latex":"..."}],"uncertain_tokens":'
+            '[{"line_id":1,"token":"...","alternatives":["...","..."]}]}\n\n'
+            "Use an empty uncertain_tokens array when everything is readable."
         )
         return await self._complete(
             prompt=prompt,

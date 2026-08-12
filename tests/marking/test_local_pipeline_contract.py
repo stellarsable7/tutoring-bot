@@ -5,7 +5,13 @@ import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
 from amath_bot.marking.local_pipeline import LocalVisionPipeline, TextGrader, VisionTranscriber
-from amath_bot.providers.vision_models import OCRLine, OCRResult, ProposedDecision, ProposedGrade
+from amath_bot.providers.vision_models import (
+    OCRLine,
+    OCRResult,
+    OCRUncertainToken,
+    ProposedDecision,
+    ProposedGrade,
+)
 
 
 def test_vision_result_models_are_provider_neutral() -> None:
@@ -39,6 +45,16 @@ def test_ocr_rejects_commentary_and_invalid_latex(latex: str) -> None:
 def test_ocr_rejects_nonconsecutive_line_ids() -> None:
     with pytest.raises(ValueError, match="consecutive"):
         OCRResult(lines=(OCRLine(id=2, latex="x=2"),))
+
+
+def test_ocr_uncertainty_references_a_known_line() -> None:
+    with pytest.raises(ValueError, match="unknown OCR line"):
+        OCRResult(
+            lines=(OCRLine(id=1, latex="x=2"),),
+            uncertain_tokens=(
+                OCRUncertainToken(line_id=2, token="x", alternatives=("x", "y")),
+            ),
+        )
 
 
 @pytest.mark.asyncio

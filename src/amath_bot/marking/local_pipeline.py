@@ -84,7 +84,14 @@ class LocalVisionPipeline:
 
             ocr_lines = [line for result in results for line in result.lines]
             lines = [f"{index}. {line.latex}" for index, line in enumerate(ocr_lines, 1)]
-            unclear = [detail for result in results for detail in result.uncertain_tokens]
+            unclear = [
+                (
+                    f"Line {detail.line_id}: uncertain token {detail.token}; "
+                    f"alternatives: {', '.join(detail.alternatives) or 'none supplied'}"
+                )
+                for result in results
+                for detail in result.uncertain_tokens
+            ]
             confidence = 1.0 if not unclear else 0.5
             complete = not unclear
             attempt.ocr_transcription = [

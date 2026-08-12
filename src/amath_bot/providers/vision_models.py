@@ -32,16 +32,27 @@ class OCRLine(BaseModel):
         return self
 
 
+class OCRUncertainToken(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    line_id: PositiveInt
+    token: str = Field(min_length=1)
+    alternatives: tuple[str, ...]
+
+
 class OCRResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     lines: tuple[OCRLine, ...]
-    uncertain_tokens: tuple[str, ...] = ()
+    uncertain_tokens: tuple[OCRUncertainToken, ...] = ()
 
     @model_validator(mode="after")
     def consecutive_line_ids(self) -> "OCRResult":
         if [line.id for line in self.lines] != list(range(1, len(self.lines) + 1)):
             raise ValueError("OCR line IDs must be consecutive starting at 1")
+        line_ids = {line.id for line in self.lines}
+        if any(item.line_id not in line_ids for item in self.uncertain_tokens):
+            raise ValueError("uncertain token references an unknown OCR line")
         return self
 
 
