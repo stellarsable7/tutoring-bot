@@ -58,8 +58,8 @@ async def test_openrouter_free_transcribes_and_applies_published_scheme() -> Non
         maximum = _published_maximum()
         proposed = await grader.propose_grade(
             transcription=transcription.lines,
-            problem_images=(),
-            solution_images=_solution_pages(),
+            problem_text="Solve the stated question.",
+            solution_text="The demonstrated correct method earns the available marks.",
             maximum=maximum,
         )
 

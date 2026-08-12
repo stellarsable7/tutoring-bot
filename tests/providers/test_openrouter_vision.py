@@ -121,7 +121,7 @@ async def test_transcribe_sends_pinned_free_vision_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_propose_grade_sends_all_solution_images_and_recalculates_total() -> None:
+async def test_propose_grade_sends_extracted_text_and_recalculates_total() -> None:
     captured: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -132,15 +132,15 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     async with client:
         result = await adapter.propose_grade(
             transcription=("x = 2", "y = 3"),
-            problem_images=(b"problem",),
-            solution_images=(b"first", b"second"),
+            problem_text="Solve x and y.",
+            solution_text="Award M1 and A1.",
             maximum=4,
         )
 
     assert result.total == 3
     assert captured["temperature"] == 0
     assert captured["model"] == GRADING_MODEL
-    assert GRADING_MODEL == "qwen/qwen3-vl-32b-instruct"
+    assert GRADING_MODEL == "liquid/lfm-2.5-2.6b:free"
     assert captured["max_tokens"] == 2200
     assert captured["response_format"]["json_schema"] == {
         "name": "proposed_grade",
@@ -152,11 +152,9 @@ async def test_propose_grade_sends_all_solution_images_and_recalculates_total() 
     assert "worth exactly 4 marks" in prompt
     assert "sum of all decision maximum values must equal" in prompt
     assert prompt.endswith("Student OCR:\n1. x = 2\n2. y = 3")
-    assert "first 1 attached image(s) contain the problem" in prompt
-    assert [item["image_url"]["url"] for item in content[1:]] == [
-        "data:image/png;base64," + base64.b64encode(value).decode("ascii")
-        for value in (b"problem", b"first", b"second")
-    ]
+    assert "Question text:\nSolve x and y." in prompt
+    assert "Published answer key:\nAward M1 and A1." in prompt
+    assert len(content) == 1
 
 
 @pytest.mark.asyncio
@@ -188,8 +186,8 @@ async def test_grading_invariants(maximum: int, decisions: list[dict[str, Any]])
         with pytest.raises(MarkingPipelineError):
             await adapter.propose_grade(
                 transcription=("line",),
-                problem_images=(b"problem",),
-                solution_images=(b"scheme",),
+                problem_text="problem",
+                solution_text="scheme",
                 maximum=maximum,
             )
 
@@ -215,8 +213,8 @@ async def test_grading_rejects_missing_labeled_question_part() -> None:
         with pytest.raises(MarkingPipelineError, match="omits a labeled"):
             await adapter.propose_grade(
                 transcription=("line",),
-                problem_images=(b"problem",),
-                solution_images=(b"scheme",),
+                problem_text="problem",
+                solution_text="scheme",
                 maximum=6,
                 expected_parts=("a", "b"),
             )

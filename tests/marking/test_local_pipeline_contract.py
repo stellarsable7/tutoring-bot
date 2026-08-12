@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
-from amath_bot.marking.local_pipeline import LocalVisionPipeline, VisionGrader, VisionTranscriber
+from amath_bot.marking.local_pipeline import LocalVisionPipeline, TextGrader, VisionTranscriber
 from amath_bot.providers.vision_models import OCRResult, ProposedDecision, ProposedGrade
 
 
@@ -14,9 +14,9 @@ def test_vision_result_models_are_provider_neutral() -> None:
     assert ProposedGrade.__module__ == "amath_bot.providers.vision_models"
 
 
-def test_vision_stage_protocols_remain_in_local_pipeline() -> None:
+def test_marking_stage_protocols_remain_in_local_pipeline() -> None:
     assert VisionTranscriber.__module__ == "amath_bot.marking.local_pipeline"
-    assert VisionGrader.__module__ == "amath_bot.marking.local_pipeline"
+    assert TextGrader.__module__ == "amath_bot.marking.local_pipeline"
 
 
 def test_configuration_error_is_a_marking_pipeline_error() -> None:

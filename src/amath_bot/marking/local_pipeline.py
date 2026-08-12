@@ -1,7 +1,6 @@
 import asyncio
 import re
 from io import BytesIO
-from pathlib import Path
 from typing import Protocol, cast
 
 import fitz  # type: ignore[import-untyped]
@@ -24,13 +23,13 @@ class VisionTranscriber(Protocol):
     async def transcribe(self, image: bytes) -> OCRResult: ...
 
 
-class VisionGrader(Protocol):
+class TextGrader(Protocol):
     async def propose_grade(
         self,
         *,
         transcription: tuple[str, ...],
-        problem_images: tuple[bytes, ...],
-        solution_images: tuple[bytes, ...],
+        problem_text: str,
+        solution_text: str,
         maximum: int,
         expected_parts: tuple[str, ...] = (),
     ) -> ProposedGrade: ...
@@ -44,12 +43,12 @@ class LocalVisionPipeline:
         session: AsyncSession,
         bot: Bot,
         transcriber: VisionTranscriber,
-        grader: VisionGrader | None = None,
+        grader: TextGrader | None = None,
     ) -> None:
         self._session = session
         self._bot = bot
         self._transcriber = transcriber
-        self._grader = grader if grader is not None else cast(VisionGrader, transcriber)
+        self._grader = grader if grader is not None else cast(TextGrader, transcriber)
 
     async def mark(self, attempt_id: int) -> MarkingOutcome:
         row = (
@@ -104,20 +103,17 @@ class LocalVisionPipeline:
         proposed: ProposedGrade | None = None
         if question.solution_asset_path:
             try:
-                solution_payload = await asyncio.to_thread(
-                    Path(question.solution_asset_path).read_bytes
+                problem_text, solution_text = await asyncio.gather(
+                    asyncio.to_thread(self._asset_text, question.asset_path),
+                    asyncio.to_thread(self._asset_text, question.solution_asset_path),
                 )
-            except OSError as error:
+            except (OSError, fitz.FileDataError, RuntimeError) as error:
                 raise MarkingPipelineError("published solution asset is unavailable") from error
-            solution_images = self._pdf_pages(solution_payload)
             try:
-                problem_images = await asyncio.to_thread(
-                    self._asset_pages, question.asset_path
-                )
                 proposed = await self._grader.propose_grade(
                     transcription=tuple(lines),
-                    problem_images=problem_images,
-                    solution_images=solution_images,
+                    problem_text=problem_text,
+                    solution_text=solution_text,
                     maximum=question.marks,
                     expected_parts=await asyncio.to_thread(
                         self._question_parts, question.asset_path
@@ -186,11 +182,9 @@ class LocalVisionPipeline:
             return ()
         return tuple(dict.fromkeys(re.findall(r"\(([a-z])\)", text, flags=re.IGNORECASE)))
 
-    @classmethod
-    def _asset_pages(cls, asset_path: str | None) -> tuple[bytes, ...]:
+    @staticmethod
+    def _asset_text(asset_path: str | None) -> str:
         if not asset_path:
-            return ()
-        try:
-            return cls._pdf_pages(Path(asset_path).read_bytes())
-        except OSError as error:
-            raise MarkingPipelineError("question asset is unavailable") from error
+            return ""
+        with fitz.open(asset_path) as document:
+            return "\n".join(page.get_text() for page in document).strip()

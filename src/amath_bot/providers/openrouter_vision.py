@@ -11,7 +11,7 @@ from amath_bot.providers.vision_models import OCRResult, ProposedGrade
 
 # Pin each stage independently so changing the grader cannot affect transcription.
 TRANSCRIPTION_MODEL = "google/gemma-4-26b-a4b-it:free"
-GRADING_MODEL = "qwen/qwen3-vl-32b-instruct"
+GRADING_MODEL = "liquid/lfm-2.5-2.6b:free"
 _CONFIGURATION_ERROR_STATUSES = frozenset({400, 401, 403, 422})
 
 _logger = logging.getLogger(__name__)
@@ -141,8 +141,8 @@ class OpenRouterGrader(_OpenRouterProvider):
         self,
         *,
         transcription: tuple[str, ...],
-        problem_images: tuple[bytes, ...],
-        solution_images: tuple[bytes, ...],
+        problem_text: str,
+        solution_text: str,
         maximum: int,
         expected_parts: tuple[str, ...] = (),
     ) -> ProposedGrade:
@@ -174,8 +174,8 @@ class OpenRouterGrader(_OpenRouterProvider):
             "verdict Correct/Partially correct/Incorrect to overall_verdict correct/partial/incorrect, "
             "put the concise marking explanation in reasoning, list specific errors in decision "
             "reasons (or state None), and give one concise feedback sentence. "
-            f"The first {len(problem_images)} attached image(s) contain the problem. The remaining "
-            "attached image(s) contain the answer key and annotated marking scheme. "
+            "The question and published answer key below were extracted from PDF files, so their "
+            "spacing may be imperfect. Use them as context alongside the student transcription. "
             f"The question is worth exactly {maximum} marks. Apply marks consistently with the "
             "published mark allocation while accepting mathematically valid alternative methods. "
             "For every awarded mark, scheme_evidence must identify the relevant published marking "
@@ -188,12 +188,16 @@ class OpenRouterGrader(_OpenRouterProvider):
             + " The sum of all decision maximum values must equal the question maximum exactly. "
             "Return JSON with total, decisions, feedback, and unclear. Each decision must contain "
             "part, marks_awarded, maximum, scheme_evidence, reason, student_lines, and a numeric "
-            "provider_confidence from 0 to 1.\n\nStudent OCR:\n"
+            "provider_confidence from 0 to 1.\n\nQuestion text:\n"
+            + problem_text
+            + "\n\nPublished answer key:\n"
+            + solution_text
+            + "\n\nStudent OCR:\n"
             + "\n".join(f"{index}. {line}" for index, line in enumerate(transcription, 1))
         )
         proposed = await self._complete(
             prompt=prompt,
-            images=problem_images + solution_images,
+            images=(),
             schema=ProposedGrade,
             schema_name="proposed_grade",
             stage="grading",
