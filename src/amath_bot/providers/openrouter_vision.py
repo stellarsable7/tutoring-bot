@@ -120,10 +120,13 @@ class OpenRouterTranscriber(_OpenRouterProvider):
     async def transcribe(self, image: bytes) -> OCRResult:
         prompt = (
             "Transcribe only the student's handwritten mathematical working, in reading order. "
-            "Preserve equations using plain text or LaTeX. Do not solve, correct, or infer missing "
-            "work. Return JSON containing: complete (boolean), lines (array of strings), unclear "
-            "(array describing each uncertain region), and confidence (number from 0 to 1). If any "
-            "symbol or line is uncertain, set complete to false and name it in unclear."
+            "Do not solve, correct, simplify, or infer missing work. Split every distinct written "
+            "equality or transformation into its own numbered line, even when several appear on one "
+            "visual row. Render mathematics as valid LaTeX without display-math delimiters. Preserve "
+            "exactly what is written. Return JSON with exactly: lines, an array of objects containing "
+            "id (consecutive positive integer starting at 1) and latex (string); and uncertain_tokens, "
+            "an array naming every unreadable or ambiguous token. Use an empty array when none are "
+            "uncertain."
         )
         return await self._complete(
             prompt=prompt,

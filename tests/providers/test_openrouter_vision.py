@@ -20,10 +20,8 @@ API_KEY = "secret-openrouter-key"
 
 def _ocr_content(**updates: Any) -> str:
     value = {
-        "complete": True,
-        "lines": ["x = 2"],
-        "unclear": [],
-        "confidence": 0.9,
+        "lines": [{"id": 1, "latex": "x = 2"}],
+        "uncertain_tokens": [],
     }
     value.update(updates)
     return json.dumps(value)
@@ -91,7 +89,7 @@ async def test_transcribe_sends_pinned_free_vision_request() -> None:
     async with client:
         result = await adapter.transcribe(b"png-image")
 
-    assert result == OCRResult(complete=True, lines=("x = 2",), confidence=0.9)
+    assert result == OCRResult(lines=({"id": 1, "latex": "x = 2"},))
     assert TRANSCRIPTION_MODEL == "google/gemma-4-26b-a4b-it:free"
     assert captured["url"] == "https://router.test/v1/chat/completions"
     assert captured["authorization"] == f"Bearer {API_KEY}"
@@ -111,6 +109,7 @@ async def test_transcribe_sends_pinned_free_vision_request() -> None:
     content = payload["messages"][0]["content"]
     assert content[0]["type"] == "text"
     assert "Transcribe only the student's handwritten mathematical working" in content[0]["text"]
+    assert "uncertain_tokens" in content[0]["text"]
     assert content[1] == {
         "type": "image_url",
         "image_url": {
@@ -277,7 +276,7 @@ async def test_operational_statuses_are_safe_configuration_errors(status: int) -
         ),
         _response("not-json"),
         _response(_ocr_content(extra="forbidden")),
-        _response(_ocr_content(confidence=1.1)),
+        _response(_ocr_content(lines=[{"id": 0, "latex": "x"}])),
     ],
     ids=[
         "non-json-envelope",
@@ -289,7 +288,7 @@ async def test_operational_statuses_are_safe_configuration_errors(status: int) -
         "refusal",
         "malformed-content",
         "extra-fields",
-        "invalid-confidence",
+        "invalid-line-id",
     ],
 )
 async def test_malformed_responses_are_ordinary_pipeline_errors(response: httpx.Response) -> None:
@@ -302,7 +301,9 @@ async def test_malformed_responses_are_ordinary_pipeline_errors(response: httpx.
 
 @pytest.mark.asyncio
 async def test_logs_selected_model_without_sensitive_values(caplog: pytest.LogCaptureFixture) -> None:
-    sensitive_content = _ocr_content(lines=["private student content"])
+    sensitive_content = _ocr_content(
+        lines=[{"id": 1, "latex": "private student content"}]
+    )
     adapter, client = await _adapter(
         lambda request: _response(sensitive_content, model="example/free-vision-model")
     )

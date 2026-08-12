@@ -5,7 +5,7 @@ import pytest
 
 from amath_bot.jobs.mark_attempt import MarkingConfigurationError, MarkingPipelineError
 from amath_bot.marking.local_pipeline import LocalVisionPipeline, TextGrader, VisionTranscriber
-from amath_bot.providers.vision_models import OCRResult, ProposedDecision, ProposedGrade
+from amath_bot.providers.vision_models import OCRLine, OCRResult, ProposedDecision, ProposedGrade
 
 
 def test_vision_result_models_are_provider_neutral() -> None:
@@ -59,7 +59,7 @@ async def test_pipeline_describes_generated_marks_as_ai_generated() -> None:
 
     class OCR:
         async def transcribe(self, _image: bytes) -> OCRResult:
-            return OCRResult(lines=("working",), confidence=1.0, complete=True, unclear=())
+            return OCRResult(lines=(OCRLine(id=1, latex="working"),))
 
         async def propose_grade(self, **_kwargs: object) -> ProposedGrade:
             raise AssertionError("a grade is not proposed without a solution")

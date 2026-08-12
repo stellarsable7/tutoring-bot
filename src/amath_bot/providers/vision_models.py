@@ -1,13 +1,18 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+
+
+class OCRLine(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: PositiveInt
+    latex: str = Field(min_length=1)
 
 
 class OCRResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    complete: bool
-    lines: tuple[str, ...]
-    unclear: tuple[str, ...] = ()
-    confidence: float = Field(ge=0, le=1)
+    lines: tuple[OCRLine, ...]
+    uncertain_tokens: tuple[str, ...] = ()
 
 
 class ProposedDecision(BaseModel):

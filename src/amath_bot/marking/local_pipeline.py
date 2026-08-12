@@ -1,7 +1,7 @@
 import asyncio
 import re
 from io import BytesIO
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import fitz  # type: ignore[import-untyped]
 from aiogram import Bot
@@ -82,18 +82,22 @@ class LocalVisionPipeline:
                 for page in pages:
                     results.append(await self._transcriber.transcribe(page))
 
-            lines = [line for result in results for line in result.lines]
-            unclear = [detail for result in results for detail in result.unclear]
-            confidence = min((result.confidence for result in results), default=0.0)
-            complete = all(result.complete for result in results)
-            attempt.ocr_transcription = lines
+            ocr_lines = [line for result in results for line in result.lines]
+            lines = [f"{index}. {line.latex}" for index, line in enumerate(ocr_lines, 1)]
+            unclear = [detail for result in results for detail in result.uncertain_tokens]
+            confidence = 1.0 if not unclear else 0.5
+            complete = not unclear
+            attempt.ocr_transcription = [
+                {"id": index, "latex": line.latex}
+                for index, line in enumerate(ocr_lines, 1)
+            ]
             attempt.ocr_unclear = unclear
             attempt.ocr_confidence = confidence
             attempt.ocr_complete = complete
             attempt.status = "transcribed"
             await self._session.commit()
         else:
-            lines = list(attempt.ocr_transcription)
+            lines = self._stored_lines(attempt.ocr_transcription)
             unclear = list(attempt.ocr_unclear or [])
             confidence = attempt.ocr_confidence or 0.0
             complete = bool(attempt.ocr_complete)
@@ -188,3 +192,13 @@ class LocalVisionPipeline:
             return ""
         with fitz.open(asset_path) as document:
             return "\n".join(page.get_text() for page in document).strip()
+
+    @staticmethod
+    def _stored_lines(stored: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for index, value in enumerate(stored, 1):
+            if isinstance(value, dict) and isinstance(value.get("latex"), str):
+                lines.append(f"{value.get('id', index)}. {value['latex']}")
+            else:
+                lines.append(str(value))
+        return lines
